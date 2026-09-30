@@ -1,0 +1,19 @@
+[project]
+name = "slam"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "mujoco>=3.4.0",
+    "opencv-python>=4.12.0.88",
+    "ruff>=0.14.13",
+    "scipy>=1.16.3",
+    "tyro>=1.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

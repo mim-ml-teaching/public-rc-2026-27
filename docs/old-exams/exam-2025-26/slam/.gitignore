@@ -1,0 +1,4 @@
+results/
+debug/
+.venv/
+__pycache__/
