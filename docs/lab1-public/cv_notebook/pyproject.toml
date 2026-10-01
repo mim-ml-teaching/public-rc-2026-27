@@ -1,0 +1,10 @@
+[project]
+name = "lab1-public-cv"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = [
+    "matplotlib>=3.11.2",
+    "opencv-python==4.14.*",
+]
