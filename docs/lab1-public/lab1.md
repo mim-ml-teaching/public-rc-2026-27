@@ -2,8 +2,8 @@
 
 This lab has two parts:
 
-1. Colab notebook introducing basics of OpenCV (`./cv_notebook`).
-2. Local MuJoCo simulator: launching the viewer and exploring a simple world (`./mujoco`).
+1. Colab notebook introducing the basics of OpenCV (`lab1-public/cv_notebook`).
+2. Local MuJoCo simulator: launching the viewer and exploring a simple world (`lab1-public/mujoco`).
 
 ## Preparation
 
@@ -24,9 +24,11 @@ This information lives in two files:
 
 `uv` reads these files and resolves/installs what is required.
 
+To avoid problems with the IDE (like VSCode) not detecting the correct python environment, instead of opening the entire repo, you may want to open a specific subdirectory of it. For example, when working with the notebook from Lab 1, you can open the `lab1-public/cv_notebook` directory; this way the python environment will be at the root of the workspace and will be automatically detected by your IDE. Each directory with a `pyproject.toml` file is a self-contained environment which you may open like that.
+
 ## Colab
 
-Notebook: [Lab 1 Colab](https://colab.research.google.com/github/mim-ml-teaching/public-rc-2026-27/blob/refs/heads/main/docs/lab1-public/lab1-colab-student.ipynb)
+Notebook: [Lab 1 Colab](https://colab.research.google.com/github/mim-ml-teaching/public-rc-2026-27/blob/main/docs/lab1-public/cv_notebook/lab1-colab-student.ipynb)
 
 ## MuJoCo
 

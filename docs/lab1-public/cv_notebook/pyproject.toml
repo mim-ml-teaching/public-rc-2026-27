@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = "==3.12.*"
 dependencies = [
+    "ipykernel>=7.4.0",
     "matplotlib>=3.11.2",
     "opencv-python==4.14.*",
 ]
