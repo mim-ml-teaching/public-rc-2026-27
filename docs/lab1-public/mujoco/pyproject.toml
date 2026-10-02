@@ -1,8 +1,7 @@
 [project]
-name = "lab1-public-cv"
+name = "lab1-public-mujoco"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Lab 1: MuJoCo viewer and ArUco detection in simulation"
 requires-python = "==3.12.*"
 dependencies = [
     "matplotlib>=3.11.2",

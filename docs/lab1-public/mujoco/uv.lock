@@ -153,7 +153,7 @@ wheels = [
 ]
 
 [[package]]
-name = "lab1-public-cv"
+name = "lab1-public-mujoco"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

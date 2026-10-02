@@ -10,8 +10,8 @@ This lab has two parts:
 All lab materials are [on GitHub](https://github.com/mim-ml-teaching/public-rc-2026-27). To clone the repository:
 
 ```bash
-git clone <REPO-URL>
-cd <REPO-DIR>
+git clone https://github.com/mim-ml-teaching/public-rc-2026-27
+cd public-rc-2026-27
 ```
 
 Throughout the course, we use [`uv`](https://docs.astral.sh/uv/) as the package manager.
@@ -48,10 +48,11 @@ All the files necessary are in `./mujoco` directory.
 Starting MuJoCo viewer is simple with `uv`:
 
 ```bash
+cd lab1-public/mujoco
 uv run python -m mujoco.viewer
 ```
 
-A window should appear: ![MuJoCo Simulator Window](assets/mujoco/mujoco_1.png)
+A window should appear: ![MuJoCo Simulator Window](mujoco/assets/mujoco_1.png)
 
 ### Loading the simulation world
 
@@ -59,7 +60,7 @@ With the viewer open, you can drag and drop `world1.xml` into the simulator wind
 The file describes the simulation environment.
 Assets location is evaluated in relation to the main `.xml` file, so make sure the `4x4_1000-0.png` file is in the correct location, as referenced in the `world1.xml` file.
 You should now see the world loaded in the simulator:
-![MuJoCo World Loaded](assets/mujoco/mujoco_2.png)
+![MuJoCo World Loaded](mujoco/assets/mujoco_2.png)
 Explore the MuJoCo interface.
 Learn how to move the camera, zoom in and out, and rotate the view.
 

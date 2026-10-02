@@ -1,8 +1,7 @@
 [project]
 name = "lab1-public-cv"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Lab 1: OpenCV basics notebook"
 requires-python = "==3.12.*"
 dependencies = [
     "ipykernel>=7.4.0",
