@@ -7,6 +7,7 @@
 
 # Lectures
 
+* [Lecture slides](slides/) (interactive, open in a browser)
 
 # Additional materials
 
