@@ -1,0 +1,131 @@
+/* Robot Control deck theme — sits on top of reveal.css (no reveal theme loaded). */
+:root {
+  --bg: #15171c;
+  --bg-2: #1e2128;
+  --bg-3: #272b34;
+  --fg: #e7e9ee;
+  --fg-dim: #9aa1ae;
+  --accent: #f2b134;   /* titles, key terms */
+  --blue: #5ab0ff;
+  --red: #ff6b6b;
+  --green: #5fd38d;
+  --purple: #b28dff;
+  --line: #3a3f4b;
+  --mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+html, body { background: var(--bg); }
+
+.reveal-viewport { background: var(--bg); }
+.reveal {
+  font-family: var(--sans);
+  font-size: 30px;
+  color: var(--fg);
+}
+.reveal .slides { text-align: left; }
+.reveal .slides section { height: 100%; box-sizing: border-box; padding: 10px 20px; }
+
+.reveal h1, .reveal h2, .reveal h3 {
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0 0 0.5em;
+  letter-spacing: -0.01em;
+}
+.reveal h1 { font-size: 2.1em; color: var(--fg); }
+.reveal h2 { font-size: 1.45em; color: var(--accent); }
+.reveal h3 { font-size: 1.05em; color: var(--blue); }
+.reveal p { margin: 0.4em 0; line-height: 1.4; }
+.reveal ul, .reveal ol { margin: 0.3em 0 0.3em 1.1em; }
+.reveal li { margin: 0.25em 0; line-height: 1.35; }
+.reveal a { color: var(--blue); text-decoration: none; border-bottom: 1px dotted var(--blue); }
+.reveal strong, .reveal b { color: var(--accent); font-weight: 600; }
+.reveal em { color: var(--fg); }
+.reveal code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-3); padding: 0 0.25em; border-radius: 4px; }
+.reveal small, .reveal .small { font-size: 0.7em; color: var(--fg-dim); }
+.reveal .dim { color: var(--fg-dim); }
+.reveal .red { color: var(--red); }
+.reveal .green { color: var(--green); }
+.reveal .blue { color: var(--blue); }
+.reveal .accent { color: var(--accent); }
+
+/* Title & section slides */
+.reveal section.title-slide { display: flex !important; flex-direction: column; justify-content: center; }
+.reveal section.title-slide h1 { margin-bottom: 0.2em; }
+.reveal section.title-slide .subtitle { font-size: 1.1em; color: var(--fg-dim); }
+.reveal section.section-slide { display: flex !important; flex-direction: column; justify-content: center; }
+.reveal section.section-slide h1 { color: var(--accent); }
+.reveal section.section-slide .num { font-family: var(--mono); color: var(--fg-dim); font-size: 0.8em; }
+
+/* Layout helpers */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2em; align-items: start; }
+.cols > * { min-width: 0; } /* keep wide content (formulas) from pushing a column past the slide edge */
+.cols.c-2-1 { grid-template-columns: 2fr 1fr; }
+.cols.c-1-2 { grid-template-columns: 1fr 2fr; }
+.cols.c-3 { grid-template-columns: 1fr 1fr 1fr; }
+.center { text-align: center; }
+.box {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5em 0.8em;
+}
+.box.key { border-color: var(--accent); }
+.box h3 { margin-top: 0; }
+.takeaway {
+  border-left: 4px solid var(--accent);
+  padding: 0.2em 0.8em;
+  background: var(--bg-2);
+  margin-top: 0.6em;
+}
+.question {
+  border-left: 4px solid var(--blue);
+  padding: 0.2em 0.8em;
+  background: var(--bg-2);
+  margin-top: 0.6em;
+}
+.question::before { content: "Question  "; font-weight: 600; color: var(--blue); }
+
+/* Tables */
+.reveal table { border-collapse: collapse; font-size: 0.72em; margin: 0.4em 0; }
+.reveal th, .reveal td { border-bottom: 1px solid var(--line); padding: 0.3em 0.6em; text-align: left; vertical-align: middle; }
+.reveal th { color: var(--accent); font-weight: 600; }
+
+/* KaTeX sizing */
+.reveal .katex { font-size: 1.05em; }
+.reveal .katex-display { margin: 0.4em 0; }
+
+/* Optional (self-study) slides */
+.optional-badge {
+  font-size: 0.45em; font-weight: 600; vertical-align: middle; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--bg); background: var(--purple); border-radius: 6px; padding: 0.15em 0.5em; margin-left: 0.4em;
+}
+
+/* Footer credit on a slide */
+.credit { position: absolute; bottom: 8px; right: 20px; font-size: 0.45em; color: var(--fg-dim); }
+
+/* ---------- Widgets ---------- */
+.widget { font-size: 0.7em; color: var(--fg); }
+.widget canvas { display: block; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; }
+.widget .wctl { display: flex; flex-wrap: wrap; gap: 0.35em; align-items: center; margin-top: 0.4em; }
+.widget button {
+  font: inherit; color: var(--fg); background: var(--bg-3);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0.2em 0.6em; cursor: pointer;
+}
+.widget button:hover { border-color: var(--accent); }
+.widget button.active { border-color: var(--accent); color: var(--accent); }
+.widget input[type=number] {
+  font: inherit; font-family: var(--mono); width: 4.2em; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0.1em 0.25em; text-align: right;
+}
+.widget input[type=range] { accent-color: var(--accent); width: 11em; }
+.widget label { color: var(--fg-dim); }
+.widget .matrix { display: inline-grid; grid-template-columns: repeat(3, auto); gap: 0.25em; padding: 0.3em 0.5em;
+  border-left: 2px solid var(--fg-dim); border-right: 2px solid var(--fg-dim); border-radius: 4px; }
+.widget .matrix input.fixed { color: var(--fg-dim); }
+.widget .matrix input.persp { border-color: var(--purple); }
+.widget .readout { font-family: var(--mono); color: var(--fg-dim); }
+
+/* Printing (reveal ?print-pdf): hide interactive-only controls */
+.reveal-print .widget .wctl.interactive-only,
+.reveal-print .interactive-only { display: none !important; }

@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lecture 1: Transformations & Pinhole Camera</title>
+  <link rel="stylesheet" href="../../vendor/reveal/reset.css">
+  <link rel="stylesheet" href="../../vendor/reveal/reveal.css">
+  <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="../../shared/deck.css">
+  <script src="../../vendor/katex/katex.min.js"></script>
+  <script src="../../vendor/katex/contrib/auto-render.min.js"></script>
+  <script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js" } }</script>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- ============================================================ -->
+<section class="title-slide">
+  <h1>Lecture 1<br>Transformations &amp; the pinhole camera</h1>
+  <p class="subtitle">Robot Control · University of Warsaw</p>
+</section>
+
+<section>
+  <h2>Course logistics</h2>
+  <div class="cols" style="grid-template-columns:1.1fr 1fr; font-size:0.7em; gap:1em">
+    <div class="box">
+      <h3>Communication: Slack</h3>
+      <div style="display:flex; gap:1em; align-items:center">
+        <img src="../../assets/slack-qr.svg" alt="QR code: invitation to the course Slack workspace" style="width:250px; height:250px; padding:10px; background:#fff; border-radius:6px; margin:0; flex:none">
+        <div style="line-height:1.4">Announcements and questions are on Slack: scan the code to join the workspace.
+          <div class="small" style="margin-top:0.4em"><a href="https://join.slack.com/t/machinelearni-cyi1366/shared_invite/zt-4bfetiimd-_c5V85nhi5TKr7sQVEOxOg">invitation link</a></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="box">
+        <h3>Lab materials</h3>
+        <a href="https://mim-ml-teaching.github.io/public-rc-2026-27/">mim-ml-teaching.github.io/public-rc-2026-27</a>
+      </div>
+      <div class="box" style="margin-top:0.6em">
+        <h3>Homework submissions</h3>
+        Moodle
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Grading</h2>
+  <div class="cols">
+    <div>
+      <h3>Two parts — pass both</h3>
+      <ul>
+        <li>pen &amp; paper exam (theory): <b>30%</b></li>
+        <li>oral exam: <b>70%</b></li>
+      </ul>
+      <p class="small" style="font-size:0.75em">Passing a part = at least 50% of its points (the threshold may be adjusted down).</p>
+      <h3 style="margin-top:0.7em">Homework</h3>
+      <ul class="small" style="font-size:0.75em">
+        <li>3 assignments, presented and defended during the oral exam</li>
+        <li>you may submit during the semester to get feedback — only submissions made by the deadline are guaranteed feedback</li>
+      </ul>
+    </div>
+    <div>
+      <div class="box">
+        <h3>Projects instead of homework</h3>
+        <p class="small" style="font-size:0.75em">Some homework assignments can be replaced by an individually defined project (e.g. hardware deployment). The proposal must be approved by one of the lab teachers.</p>
+      </div>
+      <div class="box" style="margin-top:0.6em">
+        <h3>Lab bonus</h3>
+        <p class="small" style="font-size:0.75em">For exceptional commitment, your lab teacher can add half a grade at the end of the semester (e.g. 4+ → 5). Ask your lab teacher how the bonus is judged.</p>
+        <p class="small" style="font-size:0.75em">Note: $2 + 0.5 = 2.5 \lt 3$.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Today we mathematically model</h2>
+  <div class="cols">
+    <div>
+      <h3>Moving things around</h3>
+      <div data-widget="teaser" data-config='{"mode":"grasp","width":540,"height":360}'></div>
+    </div>
+    <div>
+      <h3>Taking a picture</h3>
+      <div data-widget="teaser" data-config='{"mode":"pixel","width":540,"height":360}'></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Today we mathematically model: the plan</h2>
+  <div class="cols">
+    <div>
+      <h3>Moving things around</h3>
+      <ul>
+        <li>2D image transformations as matrices</li>
+        <li>homogeneous coordinates</li>
+        <li>rigid motion in 3D: $SO(3)$, $SE(3)$</li>
+        <li>how to represent a rotation</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Taking a picture</h3>
+      <ul>
+        <li>pinhole camera: 3D point → pixel</li>
+        <li>pixel → ray in 3D</li>
+        <li>vanishing points</li>
+        <li>lens distortion</li>
+      </ul>
+    </div>
+  </div>
+  <div class="takeaway">Goal: be able to do these computations <b>by hand</b> (lab sessions &amp; exam) and in code.</div>
+  <p class="small" style="margin-top:1em">Further reading: <a href="https://fpcv.cs.columbia.edu/">First Principles of Computer Vision</a> (S. Nayar) — Imaging → Image formation;
+    Szeliski, <a href="https://szeliski.org/Book/">Computer Vision: Algorithms and Applications</a>, ch. 2.</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 1</div>
+  <h1>2D image transformations</h1>
+</section>
+
+<section>
+  <h2>An image is a function</h2>
+  <p>$f : \mathbb{R}^2 \to \mathbb{R}^3,\ (x, y) \mapsto (r, g, b)$. &nbsp;Pixel coordinates: origin top-left, $x$ right, $y$ <b>down</b>.</p>
+  <p style="margin-top:0.5em"><b>Photometric</b>: change the values, $\;g(x) = h\big(f(x)\big)$, &nbsp;<span class="small">$h:\mathbb{R}^3\to\mathbb{R}^3$ acts on colours, e.g. brightness $h(c) = 1.4\,c$</span></p>
+  <div data-widget="imgops" data-config='{"group":"photometric","ops":["original","brightness +40%","contrast −50%","greyscale","hue shift","blur","noise"],"tile":[150,112]}'></div>
+  <p style="margin-top:0.4em"><b>Geometric</b>: transform the domain, $\;g(x) = f\big(T^{-1}(x)\big)$, &nbsp;<span class="small">$T:\mathbb{R}^2\to\mathbb{R}^2$ moves pixel positions, e.g. horizontal&nbsp;flip $T(x, y) = (W - x,\ y)$</span></p>
+  <div data-widget="imgops" data-config='{"group":"geometric","tile":[150,112]}'></div>
+</section>
+
+<section>
+  <h2>Why $T^{-1}$?</h2>
+  <div style="display:flex; gap:1em; align-items:flex-start">
+    <div data-widget="fwdbwd" data-config='{"scale":1.5,"angle":20}'></div>
+    <div style="font-size:0.72em">
+      <p>To colour output pixel $x$ we ask: <em>where did it come from?</em></p>
+      <p>$$g(x) = f\big(T^{-1}(x)\big)$$</p>
+      <p class="small">This is <b>backward warping</b>; we come back to it for image stitching in lecture 3.</p>
+      <p class="small">$T^{-1}(x)$ is rarely an integer pixel: we need <b>interpolation</b> (nearest neighbour here).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Linear maps: $2\times2$ matrices</h2>
+  <div data-widget="warp2d" data-config='{"origin":"topleft","linearOnly":true,"presets":["identity","flip","mirror","scale","skew","rotate"],"preset":"flip","width":560,"height":330}'></div>
+  <div style="display:flex; gap:1.5em; align-items:center; margin-top:0.3em">
+    <div style="font-size:0.8em">$\begin{bmatrix}x_2\\y_2\end{bmatrix} = \begin{bmatrix}a_{11}&a_{12}\\a_{21}&a_{22}\end{bmatrix}\begin{bmatrix}x_1\\y_1\end{bmatrix}$</div>
+    <ul class="small" style="font-size:0.7em; margin:0">
+      <li>the columns are the images of <span class="red">$e_1$</span> and <span class="green">$e_2$</span></li>
+      <li>origin ↦ origin; lines ↦ lines, parallel lines stay parallel</li>
+      <li>composition = matrix product: $T_{31} = T_{32}\,T_{21}$</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Lines stay lines, parallel lines stay parallel</h2>
+  <div data-widget="lines2d" data-config='{"width":600,"height":420,"autoplay":true,"modes":["linear"]}'></div>
+  <p class="small">Why: $\;M(p + t\,d) = Mp + t\,(Md)$ — the line through $p$ with direction $d$ becomes the line through $Mp$ with direction $Md$. Parallel lines share $d$, so their images share $Md$.</p>
+</section>
+
+<section>
+  <h2>Translation is not linear</h2>
+  <div class="cols">
+    <div>
+      <p>$$x_2 = x_1 + t_x, \qquad y_2 = y_1 + t_y$$</p>
+      <div class="question">Which $2\times2$ matrix does this?</div>
+      <p class="fragment">None: every linear map sends $0 \mapsto 0$.</p>
+      <p class="fragment">Trick: go one dimension up.
+        $$\begin{bmatrix}x_2\\y_2\\1\end{bmatrix} = \begin{bmatrix}1&0&t_x\\0&1&t_y\\0&0&1\end{bmatrix}\begin{bmatrix}x_1\\y_1\\1\end{bmatrix}$$</p>
+    </div>
+    <div class="fragment">
+      <div class="box">
+        <h3>Advantage</h3>
+        <p class="small" style="font-size:0.75em">One representation for everything: rotation, scaling, translation and projection all become matrix products, and a chain of them collapses into one matrix.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Homogeneous coordinates</h2>
+  <div class="cols" style="grid-template-columns: auto 1fr">
+    <div data-widget="homog" data-config='{"width":560,"height":420,"view":"top","lambda":1}'></div>
+    <div>
+      <p>A 2D point $p = (x, y)$ is represented by any
+        $$\tilde p = (\tilde x, \tilde y, \tilde z), \quad \tilde z \neq 0$$
+        with $x = \tilde x / \tilde z,\ y = \tilde y / \tilde z$.</p>
+      <p>$$\begin{bmatrix}x\\y\\1\end{bmatrix} \equiv \begin{bmatrix}\lambda x\\ \lambda y\\ \lambda\end{bmatrix}$$</p>
+      <p class="small">A point = a ray through the origin.<br>Its intersection with the plane $\tilde z = 1$ is the ordinary point.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Translation in 2D is a linear map in 3D</h2>
+  <div class="cols" style="grid-template-columns: auto 1fr">
+    <div data-widget="shear3d" data-config='{"width":620,"height":440,"autoplay":true,"view":"top"}'></div>
+    <div>
+      <p class="small" style="font-size:0.75em">The $3\times3$ translation matrix is a <b>shear</b> of 3D space:</p>
+      <p class="small" style="font-size:0.75em">$$(\tilde x, \tilde y, \tilde z) \mapsto (\tilde x + t_x \tilde z,\ \tilde y + t_y \tilde z,\ \tilde z)$$</p>
+      <ul class="small" style="font-size:0.72em">
+        <li>linear: origin fixed, lines stay lines</li>
+        <li>plane $\tilde z = 0$ does not move</li>
+        <li>plane $\tilde z = 1$ (our image) slides by $(t_x, t_y)$</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Match the matrices</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>A: $\begin{bmatrix}s_x&0&0\\0&s_y&0\\0&0&1\end{bmatrix}$ <span class="fragment accent" data-fragment-index="1">scaling</span></div>
+    <div>B: $\begin{bmatrix}1&m&0\\0&1&0\\0&0&1\end{bmatrix}$ <span class="fragment accent" data-fragment-index="1">skew (shear)</span></div>
+    <div>C: $\begin{bmatrix}1&0&t_x\\0&1&t_y\\0&0&1\end{bmatrix}$ <span class="fragment accent" data-fragment-index="1">translation</span></div>
+    <div>D: $\begin{bmatrix}\cos\theta&-\sin\theta&0\\\sin\theta&\cos\theta&0\\0&0&1\end{bmatrix}$ <span class="fragment accent" data-fragment-index="1">rotation</span></div>
+  </div>
+  <p class="small" style="margin-top:1.2em">Options: rotation · scaling · translation · skew.</p>
+</section>
+
+<section>
+  <h2>Order matters</h2>
+  <div data-widget="order2d" data-config='{"width":470,"height":330,"autoplay":true}'></div>
+  <div class="cols" style="margin-top:0.3em; font-size:0.8em">
+    <p>$TR = \begin{bmatrix}R_{2\times2} & t\\ 0 & 1\end{bmatrix}$ &nbsp; vs &nbsp; $RT = \begin{bmatrix}R_{2\times2} & R_{2\times2}\,t\\ 0 & 1\end{bmatrix}$</p>
+    <p class="small">In general $TR \neq RT$. The matrix closest to $p$ acts <b>first</b>; in $RT$ the translation vector itself gets rotated.</p>
+  </div>
+</section>
+
+<section>
+  <h2>A hierarchy of 2D transformations</h2>
+  <table>
+    <tr><th>Transformation</th><th>$3\times3$ matrix representation</th><th>DoF</th><th>Preserves</th></tr>
+    <tr><td>translation</td><td>$\begin{bmatrix}I & t\\ 0^\top & 1\end{bmatrix}$</td><td>2</td><td>orientation + everything below</td></tr>
+    <tr><td>rigid (Euclidean)</td><td>$\begin{bmatrix}R & t\\ 0^\top & 1\end{bmatrix}$</td><td>3</td><td>lengths</td></tr>
+    <tr><td>similarity</td><td>$\begin{bmatrix}sR & t\\ 0^\top & 1\end{bmatrix}$</td><td>4</td><td>angles, ratios of lengths</td></tr>
+    <tr><td>affine</td><td>$\begin{bmatrix}A & t\\ 0^\top & 1\end{bmatrix}$</td><td>6</td><td>parallelism, ratios of areas</td></tr>
+    <tr class="fragment"><td><span style="color:var(--purple)">projective (homography)</span></td><td>$\begin{bmatrix}h_{11}&h_{12}&h_{13}\\h_{21}&h_{22}&h_{23}\\h_{31}&h_{32}&h_{33}\end{bmatrix}$</td><td>8</td><td>straight lines</td></tr>
+  </table>
+  <p class="small">Each row contains the ones above it. Homography: 9 entries but defined only up to scale ($H \equiv kH$), hence 8 DoF. We use it for image stitching in lecture 3.</p>
+</section>
+
+<section class="optional">
+  <h2>Beyond affine: projective and non-linear maps <span class="optional-badge">optional</span></h2>
+  <div data-widget="lines2d" data-config='{"width":600,"height":420,"autoplay":true,"mode":"projective"}'></div>
+  <p class="small">Projective: lines stay lines, but parallel lines may meet. Non-linear: lines bend, and no matrix describes the map.</p>
+</section>
+
+<section>
+  <h2>Playground</h2>
+  <div data-widget="warp2d" data-config='{"origin":"center","preset":"affine","width":700,"height":470}'></div>
+</section>
+
+<section>
+  <h2>Exercise: reach the goal</h2>
+  <div data-widget="warp2d" data-config='{"origin": "topleft", "width": 640, "height": 440, "tasks": [{"title": "Rotate the image by 90° about its centre (160, 120).", "goal": [0, -1, 280, 1, 0, -40, 0, 0, 1]}, {"title": "Send corners 1–4 to the marked points.", "corners": [[60, 40], [380, 40], [500, 280], [180, 280]]}, {"title": "Mirror the image left–right so that it stays in place.", "goal": [-1, 0, 320, 0, 1, 0, 0, 0, 1]}]}'></div>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 2</div>
+  <h1>Rigid body motion in 3D</h1>
+</section>
+
+<section>
+  <h2>Moving a rigid object</h2>
+  <p class="small" style="font-size:0.75em; margin-top:0">A robot moves a grasped object. The motion is a map $g : \mathbb{R}^3 \to \mathbb{R}^3$ applied to <b>all</b> points of the object.</p>
+  <div data-widget="rigid3d" data-config='{"width":560,"height":330}'></div>
+  <div class="question" style="font-size:0.8em">Which mathematical property says "the object does not bend"?
+    <span>→ distances are preserved, $\|g(p) - g(q)\| = \|p - q\|$ for all $p, q$: an <b>isometry</b>.</span></div>
+  <div class="question" style="font-size:0.8em">Is every isometry a motion we can perform with a real object?</div>
+</section>
+
+<section>
+  <h2>A mirror image is also an isometry</h2>
+  <div data-widget="rot3d" data-config='{"mode":"mirror","width":600,"height":360}'></div>
+  <ul style="font-size:0.78em; margin-top:0.4em">
+    <li>A reflection, e.g. $g(x) = \mathrm{diag}(-1, 1, 1)\,x$, preserves all distances — but <b>no rotation undoes it</b>: it turns a right-handed frame into a left-handed one.</li>
+    <li>A real object can only be rotated and translated, so rigid motions must also preserve <b>orientation</b> (handedness). Next slide: this is exactly $\det A = +1$.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>From "preserves distances" to $R x + t$</h2>
+  <ol>
+    <li><b>Mazur–Ulam</b>: every (surjective) isometry of $\mathbb{R}^n$ is affine: $g(x) = A x + t$.</li>
+    <li class="fragment">$A$ preserves lengths, hence dot products (polarisation):
+      $\langle Ax, Ay\rangle = \langle x, y\rangle \;\Rightarrow\; A^\top A = I$, &nbsp; $A$ is <b>orthogonal</b>.</li>
+    <li class="fragment">$\det(A^\top A) = \det(A)^2 = 1 \;\Rightarrow\; \det A = \pm 1$.
+      <ul class="small" style="font-size:0.8em">
+        <li>$\det A = +1$: rotation &nbsp;·&nbsp; $\det A = -1$: rotation composed with a reflection</li>
+      </ul>
+    </li>
+    <li class="fragment">Excluding reflections: $A \in SO(3) = \{R \in \mathbb{R}^{3\times3} : R^\top R = I,\ \det R = 1\}$</li>
+  </ol>
+  <div class="takeaway fragment">Rigid motion $=$ rotation $+$ translation: $\quad g(x) = R x + t, \quad R \in SO(3)$</div>
+</section>
+
+<section class="optional">
+  <h2>From "preserves distances" to $R x + t$: why <span class="optional-badge">optional</span></h2>
+  <ol style="font-size:0.88em">
+    <li><b>Isometries are affine</b> (Mazur–Ulam): every surjective isometry of $\mathbb{R}^n$ is $g(x) = A x + t$.
+      <div class="small" style="font-size:0.78em; line-height:1.35; margin:0.15em 0 0.55em">Idea: the midpoint of $p, q$ is the only point at distance $\tfrac12\|p - q\|$ from both, so $g$ maps midpoints to midpoints; with continuity this forces $g$ to be affine. Here $t = g(0)$ is where the origin goes and $A x = g(x) - g(0)$.</div></li>
+    <li><b>$A$ preserves lengths</b>: $\|Ax\| = \|g(x) - g(0)\| = \|x - 0\| = \|x\|$.
+      <div class="small" style="font-size:0.78em; line-height:1.35; margin:0.15em 0 0.55em">Lengths determine dot products (polarisation): $\langle x, y\rangle = \tfrac12\left(\|x + y\|^2 - \|x\|^2 - \|y\|^2\right)$. Hence $\langle Ax, Ay\rangle = \langle x, y\rangle$, i.e. $x^\top A^\top A\, y = x^\top y$ for all $x, y$, so $A^\top A = I$: $A$ is <b>orthogonal</b> (its columns are orthonormal).</div></li>
+    <li><b>Only two values of $\det A$</b>: $\det(A^\top A) = \det(A)^2 = \det I = 1 \;\Rightarrow\; \det A = \pm 1$.
+      <div class="small" style="font-size:0.78em; line-height:1.35; margin:0.15em 0 0.55em">$\det A = +1$: rotation &nbsp;·&nbsp; $\det A = -1$: rotation composed with a reflection, like the mirror image two slides back.</div></li>
+    <li><b>A real object cannot be mirrored</b>, so $\det A = +1$: &nbsp;$A \in SO(3) = \{R \in \mathbb{R}^{3\times3} : R^\top R = I,\ \det R = 1\}$.</li>
+  </ol>
+  <div class="takeaway">Rigid motion $=$ rotation $+$ translation: $\quad g(x) = R x + t, \quad R \in SO(3)$</div>
+</section>
+
+<section>
+  <h2>What the columns of $R$ mean</h2>
+  <div class="cols">
+    <div>
+      <p>$$R = \begin{bmatrix} | & | & | \\ r_1 & r_2 & r_3 \\ | & | & | \end{bmatrix}, \qquad r_i = R\, e_i$$</p>
+      <ul>
+        <li>column $i$ = where the $i$-th axis goes</li>
+        <li>columns are orthonormal: $r_i^\top r_j = \delta_{ij}$</li>
+        <li>right-handed: $r_1 \times r_2 = r_3$</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Two readings of $p_W = R\,p_B$</h3>
+      <p class="small" style="font-size:0.72em"><b>Active</b>: rotate point $p$ by $R$ (same frame).</p>
+      <p class="small" style="font-size:0.72em"><b>Passive</b>: $r_1, r_2, r_3$ are the axes of a body frame $B$ written in the world frame $W$; $R$ converts coordinates from $B$ to $W$.</p>
+      <p class="small" style="font-size:0.72em">Same matrix, two stories. Always write down which frame a vector lives in.</p>
+    </div>
+  </div>
+  <p class="small">Properties of $SO(3)$: closed under products, $R^{-1} = R^\top \in SO(3)$, products do <b>not</b> commute.</p>
+</section>
+
+<section class="optional">
+  <h2>Rotations about the coordinate axes <span class="optional-badge">optional</span></h2>
+  <div class="cols" style="grid-template-columns: auto 1fr">
+    <div data-widget="rot3d" data-config='{"mode":"elementary","axis":"z","width":560,"height":400}'></div>
+    <div style="font-size:0.72em">
+      $$R_x(\theta) = \begin{bmatrix}1&0&0\\0&\cos\theta&-\sin\theta\\0&\sin\theta&\cos\theta\end{bmatrix}$$
+      $$R_y(\theta) = \begin{bmatrix}\cos\theta&0&\sin\theta\\0&1&0\\-\sin\theta&0&\cos\theta\end{bmatrix}$$
+      $$R_z(\theta) = \begin{bmatrix}\cos\theta&-\sin\theta&0\\\sin\theta&\cos\theta&0\\0&0&1\end{bmatrix}$$
+      <p class="small">$R_y$ looks "flipped": the cyclic order is $x \to y \to z \to x$, so for $R_y$ the plane is $(z, x)$.</p>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>3D rotations do not commute <span class="optional-badge">optional</span></h2>
+  <div data-widget="rot3d" data-config='{"mode":"noncommute","width":620,"height":420,"autoplay":true}'></div>
+</section>
+
+<section>
+  <h2>Homogeneous form: $SE(3)$</h2>
+  <div class="cols">
+    <div>
+      <p>$$T = \begin{bmatrix} R & t \\ 0^\top & 1 \end{bmatrix} \in SE(3), \qquad \begin{bmatrix} x' \\ 1 \end{bmatrix} = T \begin{bmatrix} x \\ 1 \end{bmatrix}$$</p>
+      <ul>
+        <li>composition: $T_2 T_1 = \begin{bmatrix} R_2 R_1 & R_2 t_1 + t_2 \\ 0^\top & 1 \end{bmatrix}$</li>
+        <li>inverse: $T^{-1} = \begin{bmatrix} R^\top & -R^\top t \\ 0^\top & 1 \end{bmatrix}$ <span class="small">(not $-t$!)</span></li>
+        <li>6 degrees of freedom: 3 rotation + 3 translation</li>
+      </ul>
+    </div>
+    <div class="box key">
+      <h3>Notation used in this course</h3>
+      <p class="small" style="font-size:0.75em">${}^{A}T_{B}$ maps coordinates in frame $B$ to coordinates in frame $A$:</p>
+      <p class="small" style="font-size:0.75em">$${}^{A}p = {}^{A}T_{B}\;{}^{B}p$$</p>
+      <p class="small" style="font-size:0.75em">Chains cancel like fractions:</p>
+      <p class="small" style="font-size:0.75em">$${}^{W}T_{C} = {}^{W}T_{R}\;{}^{R}T_{C}$$</p>
+      <p class="small" style="font-size:0.7em">world ← robot ← camera: the camera pose of lecture 2.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 3</div>
+  <h1>Representing rotations</h1>
+</section>
+
+<section>
+  <h2>How many numbers?</h2>
+  <ul>
+    <li>$R$ has 9 entries</li>
+    <li>$R^\top R = I$ gives 6 independent constraints: 3 unit lengths + 3 orthogonality</li>
+    <li><b>3 degrees of freedom</b></li>
+  </ul>
+  <p class="fragment">Every 3-number description has a singularity somewhere: no parametrisation of $SO(3)$ by 3 numbers is smooth and one-to-one everywhere.
+    That is why we have several representations, each good for something.</p>
+  <table class="fragment">
+    <tr><th>representation</th><th>numbers</th><th>good for</th><th>watch out</th></tr>
+    <tr><td>rotation matrix</td><td>9</td><td>applying and composing</td><td>redundant; drifts off $SO(3)$ numerically</td></tr>
+    <tr><td>Euler angles</td><td>3</td><td>humans, joint angles, UIs</td><td>12 conventions, gimbal lock, bad interpolation</td></tr>
+    <tr><td>axis–angle / rotation vector</td><td>4 / 3</td><td>geometry, OpenCV <code>rvec</code>, small rotations</td><td>axis undefined at $\theta=0$; composition not simple</td></tr>
+    <tr><td>unit quaternion</td><td>4</td><td>composing, interpolating, filtering</td><td>$q$ and $-q$ are the same rotation</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Euler angles</h2>
+  <div class="cols">
+    <div>
+      <p>Three successive rotations about coordinate axes. The robotics / aerospace convention <b>ZYX</b> (yaw–pitch–roll):</p>
+      <p>$$R = R_z(\psi)\, R_y(\theta)\, R_x(\varphi)$$</p>
+      <ul class="small" style="font-size:0.75em">
+        <li><b>intrinsic</b> reading: yaw about $z$, then pitch about the <em>new</em> $y'$, then roll about $x''$</li>
+        <li><b>extrinsic</b> reading of the same product: roll about world $x$, then pitch about world $y$, then yaw about world $z$</li>
+        <li>other conventions: ZYZ, XYZ, ... — 12 in total; always check which one a library uses</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>From $R$ back to angles (ZYX)</h3>
+      <p class="small" style="font-size:0.75em">$$\theta = -\arcsin r_{31}$$
+      $$\psi = \operatorname{atan2}(r_{21}, r_{11}), \quad \varphi = \operatorname{atan2}(r_{32}, r_{33})$$</p>
+      <p class="small" style="font-size:0.72em">Breaks down when $\cos\theta = 0$ …</p>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>Gimbal lock <span class="optional-badge">optional</span></h2>
+  <div data-widget="rot3d" data-config='{"mode":"euler","width":500,"height":300,"pitch":20}'></div>
+  <div class="cols" style="margin-top:0.3em; font-size:0.66em; gap:1em">
+    <div>
+      <p><b>What it is.</b> At pitch $\theta = \pm 90^\circ$ the roll axis $x''$ lines up with the yaw axis $z$: the first and the last rotation turn about the <b>same axis</b> (two gimbal rings lie in one plane).</p>
+      <p>Not a property of the rotation, but of the <b>parametrisation</b>: every description of $SO(3)$ by 3 numbers has such singular points.</p>
+    </div>
+    <div>
+      <p><b>Mathematical consequences</b> at the singularity:</p>
+      <ul style="margin-top:0">
+        <li>$R$ depends only on $\varphi - \psi$: the map $(\psi, \theta, \varphi) \mapsto R$ loses rank (its Jacobian has rank 2) — one rotation direction cannot be reached by small changes of the angles</li>
+        <li>the inverse is not unique: infinitely many $(\psi, \varphi)$ give the same $R$; the atan2 formulas break down ($\cos\theta = 0$)</li>
+        <li>near it, angle rates blow up: $\dot\psi = \dfrac{\omega_y \sin\varphi + \omega_z \cos\varphi}{\cos\theta}$ ($\omega$: angular velocity in the body frame) — a small rotation needs huge angle changes</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>Gimbal lock: the algebra <span class="optional-badge">optional</span></h2>
+  <p>At $\theta = 90^\circ$, $R_y(90^\circ) = \begin{bmatrix}0&0&1\\0&1&0\\-1&0&0\end{bmatrix}$ and</p>
+  <p>$$R_z(\psi)\,R_y(90^\circ)\,R_x(\varphi) = \begin{bmatrix} 0 & \sin(\varphi-\psi) & \cos(\varphi-\psi) \\ 0 & \cos(\varphi-\psi) & -\sin(\varphi-\psi) \\ -1 & 0 & 0 \end{bmatrix}$$</p>
+  <ul>
+    <li>only $\varphi - \psi$ matters: one degree of freedom is lost</li>
+    <li>near the singularity small changes of $R$ need huge changes of $\psi, \varphi$ — a problem for controllers and filters</li>
+  </ul>
+  <div class="takeaway">Euler angles are fine for <em>displaying</em> an orientation, not for computing with it.</div>
+</section>
+
+<section>
+  <h2>Axis–angle</h2>
+  <div class="cols">
+    <div>
+      <div class="box key">
+        <p><b>Euler's rotation theorem.</b> Every rotation of $\mathbb{R}^3$ is a rotation by an angle $\theta$ about a fixed axis $k$ through the origin ($\|k\| = 1$).</p>
+      </div>
+      <ul>
+        <li>axis + angle: 4 numbers with $\|k\|=1$ → 3 DoF</li>
+        <li><b>rotation vector</b> $\omega = \theta k$: 3 numbers, $\theta = \|\omega\|$</li>
+        <li>this is what OpenCV calls <code>rvec</code> (<code>cv2.Rodrigues</code>)</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Why is there an axis?</h3>
+      <p class="small" style="font-size:0.75em">The axis is a vector that $R$ does not move: $Rk = k$, i.e. $1$ is an eigenvalue of $R$.</p>
+      <p class="small" style="font-size:0.75em">
+        $$\begin{aligned}
+        \det(R - I) &= \det(R^\top)\det(R - I) = \det(I - R^\top) \\
+        &= \det\big((I - R)^\top\big) = \det(I - R) \\
+        &= (-1)^3 \det(R - I)
+        \end{aligned}$$
+        hence $\det(R - I) = 0$.</p>
+      <p class="small" style="font-size:0.72em">Uses $\det R = 1$ and $n = 3$ odd.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Euler's theorem, visually</h2>
+  <div data-widget="rot3d" data-config='{"mode":"oneaxis","width":620,"height":380,"autoplay":true}'></div>
+  <p class="small">Three rotations about the coordinate axes, one after another (left), end in exactly the same pose as <b>one</b> rotation by $\theta$ about a single axis $k$ (right). This holds for any product of rotations.</p>
+</section>
+
+<section class="optional">
+  <h2>From a matrix to axis–angle <span class="optional-badge">optional</span></h2>
+  <div class="cols">
+    <div>
+      <p><b>Angle</b> from the trace (the trace does not depend on the basis):</p>
+      <p>$$\operatorname{tr} R = 1 + 2\cos\theta$$</p>
+      <p><b>Axis</b> from the antisymmetric part:</p>
+      <p>$$\frac{R - R^\top}{2} = \sin\theta\,[k]_\times$$</p>
+      <p class="small">where $[k]_\times = \begin{bmatrix}0&-k_3&k_2\\k_3&0&-k_1\\-k_2&k_1&0\end{bmatrix}$, &nbsp; $[k]_\times v = k \times v$.</p>
+    </div>
+    <div class="box">
+      <h3>Special cases</h3>
+      <ul class="small" style="font-size:0.72em">
+        <li>$\theta = 0$: any axis works</li>
+        <li>$\theta = \pi$: $\sin\theta = 0$; read $k$ from $\tfrac{1}{2}(R + I) = k k^\top$</li>
+        <li>$(k, \theta)$ and $(-k, -\theta)$ are the same rotation</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>From axis–angle to a matrix: Rodrigues' formula <span class="optional-badge">optional</span></h2>
+  <div class="cols">
+    <div>
+      <svg viewBox="0 0 330 280" style="width:100%; max-height:430px">
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+        <ellipse cx="150" cy="120" rx="115" ry="36" fill="none" stroke="#3a3f4b" stroke-width="1.5"/>
+        <line x1="150" y1="250" x2="150" y2="30" stroke="#b28dff" stroke-width="2.5" marker-end="url(#ah)"/>
+        <text x="158" y="40" fill="#b28dff" font-style="italic" font-size="18">k</text>
+        <line x1="150" y1="250" x2="150" y2="120" stroke="#9aa1ae" stroke-width="2" stroke-dasharray="5 4"/>
+        <text x="92" y="200" fill="#9aa1ae" font-size="15" font-style="italic">k(k·v)</text>
+        <line x1="150" y1="120" x2="265" y2="120" stroke="#9aa1ae" stroke-width="2" marker-end="url(#ah)"/>
+        <text x="205" y="112" fill="#9aa1ae" font-size="15" font-style="italic">v<tspan baseline-shift="sub" font-size="11">⊥</tspan></text>
+        <line x1="150" y1="120" x2="150" y2="156" stroke="#5fd38d" stroke-width="2" marker-end="url(#ah)"/>
+        <text x="88" y="160" fill="#5fd38d" font-size="15" font-style="italic">k × v</text>
+        <line x1="150" y1="250" x2="265" y2="120" stroke="#e7e9ee" stroke-width="2.5" marker-end="url(#ah)"/>
+        <text x="272" y="128" fill="#e7e9ee" font-style="italic" font-size="18">v</text>
+        <line x1="150" y1="250" x2="207.5" y2="151.2" stroke="#f2b134" stroke-width="2.5" marker-end="url(#ah)"/>
+        <text x="214" y="190" fill="#f2b134" font-size="16" font-style="italic">v<tspan baseline-shift="sub" font-size="11">rot</tspan></text>
+        <path d="M 245 128 Q 236 140 222 146" fill="none" stroke="#f2b134" stroke-width="1.5" marker-end="url(#ah)"/>
+        <text x="246" y="152" fill="#f2b134" font-size="15" font-style="italic">θ</text>
+      </svg>
+    </div>
+    <div>
+      <p class="small" style="font-size:0.78em">Split $v$ into parts parallel and perpendicular to $k$. The parallel part stays, the perpendicular part rotates in the plane spanned by $v_\perp$ and $k \times v$:</p>
+      <p style="font-size:0.8em">$$v_{\text{rot}} = v\cos\theta + (k \times v)\sin\theta + k\,(k\cdot v)(1-\cos\theta)$$</p>
+      <p class="small" style="font-size:0.78em">In matrix form:</p>
+      <p style="font-size:0.8em">$$R = I + \sin\theta\,[k]_\times + (1-\cos\theta)\,[k]_\times^2$$</p>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>Exponential coordinates <span class="optional-badge">optional</span></h2>
+  <div class="cols">
+    <div>
+      <p>Spin with constant angular velocity $\omega$ for one second: every point obeys<br>$\dot p = \omega \times p = [\omega]_\times\, p$. The solution:</p>
+      <p>$$p(1) = e^{[\omega]_\times} p(0), \qquad R = e^{[\omega]_\times} = \sum_{n\ge0} \frac{[\omega]_\times^n}{n!}$$</p>
+      <p class="small">With $\omega = \theta k$ and $[k]_\times^3 = -[k]_\times$ the series collapses to Rodrigues' formula.</p>
+    </div>
+    <div class="box">
+      <h3>Why it matters</h3>
+      <ul class="small" style="font-size:0.72em">
+        <li>the rotation vector <em>is</em> the exponential coordinate</li>
+        <li>$\omega \mapsto e^{[\omega]_\times}$ gives a local, unconstrained parametrisation around any $R_0$: $R = R_0\, e^{[\delta]_\times}$ — used by optimisers (calibration, SLAM) and Kalman filters later in the course</li>
+        <li>inverse map: $\log R$ = axis–angle extraction from the previous slides</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>Unit quaternions <span class="optional-badge">optional</span></h2>
+  <div class="cols">
+    <div>
+      <p>$$q = \Big(\cos\tfrac{\theta}{2},\ \sin\tfrac{\theta}{2}\, k\Big) = (w, x, y, z), \quad \|q\| = 1$$</p>
+      <ul>
+        <li>rotate: $\;(0, v') = q\,(0, v)\,\bar q$</li>
+        <li>compose: quaternion product $q_2 q_1$ (16 multiplications vs 27 for matrices)</li>
+        <li><b>double cover</b>: $q$ and $-q$ give the same rotation</li>
+        <li>no singularities, smooth interpolation (slerp)</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Quaternion product</h3>
+      <p class="small" style="font-size:0.72em">For $q_i = (w_i, u_i)$ with scalar $w_i$ and vector $u_i$:</p>
+      <p class="small" style="font-size:0.72em">$$q_1 q_2 = \big(w_1 w_2 - u_1\cdot u_2,\ \ w_1 u_2 + w_2 u_1 + u_1 \times u_2\big)$$</p>
+      <p class="small" style="font-size:0.72em">Half angles: rotating by $2\pi$ gives $q = -1$, which is still the identity rotation.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>One rotation, many descriptions</h2>
+  <div style="display:flex; gap:0.6em; align-items:flex-start">
+    <div data-widget="rot3d" data-config='{"mode":"inspector","width":520,"height":420}'></div>
+    <figure style="margin:0; width:240px; flex:none">
+      <svg viewBox="0 0 210 300" style="width:240px">
+        <defs><marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+        <!-- flange and connector -->
+        <rect x="75" y="238" width="60" height="30" rx="4" fill="#4a505c"/>
+        <rect x="97" y="246" width="16" height="14" fill="#ff6b6b"/>
+        <!-- palm -->
+        <rect x="35" y="214" width="140" height="24" rx="3" fill="#8a93a6"/>
+        <!-- fingers with pads -->
+        <rect x="40" y="110" width="22" height="104" rx="2" fill="#c9ccd4"/>
+        <rect x="148" y="110" width="22" height="104" rx="2" fill="#c9ccd4"/>
+        <rect x="62" y="118" width="6" height="44" fill="#2d313a"/>
+        <rect x="142" y="118" width="6" height="44" fill="#2d313a"/>
+        <!-- closing motion -->
+        <line x1="74" y1="186" x2="92" y2="186" stroke="#9aa1ae" stroke-width="2" marker-end="url(#ahg)"/>
+        <line x1="136" y1="186" x2="118" y2="186" stroke="#9aa1ae" stroke-width="2" marker-end="url(#ahg)"/>
+        <!-- tool frame at the palm centre -->
+        <line x1="105" y1="214" x2="105" y2="62" stroke="#5ab0ff" stroke-width="3" marker-end="url(#ahg)"/>
+        <line x1="105" y1="214" x2="196" y2="214" stroke="#5fd38d" stroke-width="3" marker-end="url(#ahg)"/>
+        <circle cx="105" cy="214" r="7" fill="none" stroke="#ff6b6b" stroke-width="2.5"/>
+        <circle cx="105" cy="214" r="2.2" fill="#ff6b6b"/>
+        <text x="112" y="72" fill="#5ab0ff" font-size="17" font-style="italic">z</text>
+        <text x="186" y="206" fill="#5fd38d" font-size="17" font-style="italic">y</text>
+        <text x="84" y="208" fill="#ff6b6b" font-size="17" font-style="italic">x</text>
+        <text x="8" y="28" fill="#5ab0ff" font-size="14.5">z: approach direction</text>
+        <text x="8" y="48" fill="#5fd38d" font-size="14.5">y: closing direction</text>
+        <text x="8" y="292" fill="#ff6b6b" font-size="14">x = y × z (out of the page)</text>
+      </svg>
+      <figcaption class="small" style="font-size:0.55em">Parallel-jaw gripper and its tool frame (the usual convention for robot end effectors).</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h2>Conventions in software</h2>
+  <table>
+    <tr><th>library</th><th>quaternion order</th><th>notes</th></tr>
+    <tr><td>ROS <code>geometry_msgs/Quaternion</code></td><td>$(x, y, z, w)$</td><td>fields named explicitly</td></tr>
+    <tr><td>SciPy <code>Rotation.as_quat()</code></td><td>$(x, y, z, w)$</td><td>scalar-last by default</td></tr>
+    <tr><td>Eigen <code>Quaterniond(w, x, y, z)</code></td><td>constructor $(w, x, y, z)$</td><td>but <code>coeffs()</code> returns $(x, y, z, w)$</td></tr>
+    <tr><td>MuJoCo</td><td>$(w, x, y, z)$</td><td></td></tr>
+    <tr><td>PyBullet</td><td>$(x, y, z, w)$</td><td></td></tr>
+    <tr><td>OpenCV</td><td>—</td><td>rotation vector <code>rvec</code> + <code>cv2.Rodrigues</code></td></tr>
+  </table>
+  <div class="takeaway">Before trusting a pose: check the order, the Euler convention, and whether a transform maps world→body or body→world.</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 4</div>
+  <h1>The pinhole camera</h1>
+</section>
+
+<section>
+  <h2>Why a pinhole?</h2>
+  <div data-widget="pinhole2d" data-config='{"hole":0.06,"width":620,"height":330}'></div>
+  <ul style="font-size:0.72em; margin-top:0.3em">
+    <li>A bare sensor receives light from every point of the scene at every pixel: no image.</li>
+    <li>Put a <b>barrier with a small hole</b> (the pinhole) in front of it: each sensor point now receives light along a single ray — a sharp image, <b>upside down</b>.</li>
+    <li>Hole size trades <b>sharpness</b> for <b>brightness</b>; real cameras replace the hole with a lens (lecture 2 material).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>The pinhole camera in 3D</h2>
+  <div data-widget="camera3d" data-config='{"controls":["rays","physical"],"rays":true,"physical":true,"width":560,"height":400,"imageWidth":380,"camera":[-5,2.3,8.5],"target":[0,1.1,2.5]}' ></div>
+  <p class="small">The same in 3D: one ray through the pinhole per pixel, an inverted image on the physical image plane behind it. We work with the equivalent <b>virtual image plane</b> in front of the pinhole: same geometry, no flip.</p>
+</section>
+
+<section>
+  <h2>Perspective projection</h2>
+  <p class="small" style="font-size:0.7em">Camera frame: origin at the pinhole, $z$ along the optical axis, $x$ right, $y$ down. A point $P = (x_c, y_c, z_c)$ and its image on the virtual plane at distance $f$:</p>
+  <div style="display:flex; gap:1.2em; align-items:flex-start">
+    <figure style="margin:0">
+      <div data-widget="pinhole3d" data-config='{"width":470,"height":320}'></div>
+    </figure>
+    <figure style="margin:0">
+      <svg viewBox="0 0 360 240" style="width:360px">
+        <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+        <line x1="20" y1="60" x2="345" y2="60" stroke="#5ab0ff" stroke-width="2" marker-end="url(#ah2)"/>
+        <text x="330" y="50" fill="#5ab0ff" font-style="italic">z</text>
+        <line x1="40" y1="60" x2="40" y2="215" stroke="#ff6b6b" stroke-width="2" marker-end="url(#ah2)"/>
+        <text x="48" y="212" fill="#ff6b6b" font-style="italic">x</text>
+        <circle cx="40" cy="60" r="5" fill="#fff"/>
+        <text x="4" y="88" fill="#e7e9ee" font-size="14">pinhole</text>
+        <line x1="120" y1="20" x2="120" y2="200" stroke="#9aa1ae" stroke-width="3"/>
+        <text x="84" y="232" fill="#9aa1ae" font-size="13">virtual image plane</text>
+        <line x1="40" y1="60" x2="300" y2="175" stroke="#f2b134" stroke-width="2"/>
+        <circle cx="300" cy="175" r="6" fill="#ff6b6b"/>
+        <text x="308" y="182" fill="#ff6b6b" font-size="15">P</text>
+        <circle cx="120" cy="95.4" r="5" fill="#f2b134"/>
+        <line x1="300" y1="175" x2="300" y2="60" stroke="#ff6b6b" stroke-dasharray="4 4"/>
+        <text x="306" y="122" fill="#ff6b6b" font-size="15" font-style="italic">x<tspan baseline-shift="sub" font-size="11">c</tspan></text>
+        <text x="126" y="112" fill="#f2b134" font-size="15" font-style="italic">x<tspan baseline-shift="sub" font-size="11">i</tspan></text>
+        <line x1="40" y1="42" x2="120" y2="42" stroke="#e7e9ee" marker-end="url(#ah2)" marker-start="url(#ah2)"/>
+        <text x="74" y="36" fill="#e7e9ee" font-size="14" font-style="italic">f</text>
+        <text x="200" y="52" fill="#5ab0ff" font-size="15" font-style="italic">z<tspan baseline-shift="sub" font-size="11">c</tspan></text>
+      </svg>
+      <figcaption class="small">top view: looking along $y$ (from above)</figcaption>
+    </figure>
+  </div>
+  <p style="margin-top:0.3em">Similar triangles: $\;\dfrac{x_i}{f} = \dfrac{x_c}{z_c}, \quad \dfrac{y_i}{f} = \dfrac{y_c}{z_c}$ <span class="small">&nbsp; ($f$: effective focal length; division by $z_c$: far things look small)</span></p>
+</section>
+
+<section>
+  <h2>From millimetres to pixels</h2>
+  <div class="cols">
+    <div>
+      <ul>
+        <li>the sensor has $m_x, m_y$ pixels per mm</li>
+        <li>pixel $(0,0)$ is the top-left corner; the optical axis hits the sensor at the <b>principal point</b> $(o_x, o_y)$</li>
+      </ul>
+      <p>$$u = \underbrace{m_x f}_{f_x} \frac{x_c}{z_c} + o_x, \qquad v = \underbrace{m_y f}_{f_y} \frac{y_c}{z_c} + o_y$$</p>
+      <p><b>Intrinsic parameters</b> $(f_x, f_y, o_x, o_y)$: the camera's internal geometry, in pixels.</p>
+    </div>
+    <div class="box">
+      <h3>Typical values</h3>
+      <ul class="small" style="font-size:0.72em">
+        <li>$f_x \approx f_y$ (square pixels)</li>
+        <li>$(o_x, o_y) \approx$ image centre, but not exactly</li>
+        <li>field of view: $\;\mathrm{FOV}_x = 2\arctan\dfrac{W}{2 f_x}$</li>
+        <li>sometimes a 5th parameter, skew $s$ (next lecture)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Projection as a matrix</h2>
+  <p>The equations are non-linear (division by $z_c$), but linear in homogeneous coordinates:</p>
+  <p>$$\begin{bmatrix}\tilde u\\ \tilde v\\ \tilde w\end{bmatrix} =
+      \begin{bmatrix} z_c u\\ z_c v\\ z_c \end{bmatrix} =
+      \underbrace{\begin{bmatrix} f_x & 0 & o_x \\ 0 & f_y & o_y \\ 0 & 0 & 1 \end{bmatrix}}_{K}
+      \begin{bmatrix} x_c\\ y_c\\ z_c\end{bmatrix},
+      \qquad (u, v) = \Big(\frac{\tilde u}{\tilde w}, \frac{\tilde v}{\tilde w}\Big)$$</p>
+  <p class="small" style="font-size:0.75em">Both equalities are exact: $K x_c$ is the particular homogeneous vector $z_c\,(u, v, 1)$. As points, $\;(u, v, 1) \simeq K x_c\;$ — equal up to scale.</p>
+  <div class="cols">
+    <ul>
+      <li>$K$: <b>calibration matrix</b>, upper triangular</li>
+      <li>with a homogeneous 3D point: $\tilde u = [K \,|\, 0]\,\tilde x_c$</li>
+    </ul>
+    <p class="small">$[K\,|\,0]$ is $3\times4$; next lecture we multiply it by the $4\times4$ camera pose to get the full projection matrix.</p>
+  </div>
+</section>
+
+<section>
+  <h2>A pinhole camera to play with</h2>
+  <div data-widget="camera3d" data-config='{"controls":["f","o","click"],"click":[430,210],"width":560,"height":400,"imageWidth":400}'></div>
+</section>
+
+<section>
+  <h2>Worked example</h2>
+  <div class="cols">
+    <div>
+      <p>$f_x = f_y = 800$, $(o_x, o_y) = (320, 240)$, point $x_c = (0.5, -0.25, 4)$ m.</p>
+      <p class="fragment">$$\begin{aligned} u &= 800 \cdot \frac{0.5}{4} + 320 = 420 \\ v &= 800 \cdot \frac{-0.25}{4} + 240 = 190 \end{aligned}$$</p>
+      <p class="fragment">Back from pixel $(420, 190)$:
+        $$K^{-1}\begin{bmatrix}420\\190\\1\end{bmatrix} = \begin{bmatrix}0.125\\-0.0625\\1\end{bmatrix}$$
+        We get only the <b>direction</b>; any $z_c > 0$ fits. With $z_c = 4$ we recover the point.</p>
+    </div>
+    <div class="box">
+      <h3>Pixel → ray</h3>
+      <p class="small" style="font-size:0.75em">$$\begin{aligned} x_c &= \frac{z_c}{f_x}\,(u - o_x) \\ y_c &= \frac{z_c}{f_y}\,(v - o_y) \\ z_c &> 0 \end{aligned}$$</p>
+      <p class="small" style="font-size:0.72em">Depth is lost in projection. To get it back: a second camera (stereo, lecture 2), a depth sensor, motion, or prior knowledge of object size.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Depth is ambiguous</h2>
+  <div data-widget="camera3d" data-config='{"scene":"ambiguity","controls":["click"],"click":[445,200],"width":560,"height":400,"imageWidth":400}'></div>
+  <p class="small">A <span class="blue">small cube</span> close by and a <span class="accent">cube 3× larger, 3× farther away</span> project to <b>exactly the same pixels</b> (in the image: blue dashed on top of orange). Film-makers use this (forced perspective, the <a href="https://en.wikipedia.org/wiki/Beuchet_chair">Beuchet chair</a>); robots have to work around it.</p>
+</section>
+
+<section>
+  <h2>The Beuchet chair</h2>
+  <div style="display:flex; gap:1.2em; align-items:flex-start">
+    <figure style="margin:0">
+      <img src="../../assets/lecture01/beuchet-peephole.jpg" alt="A chair seen through a peephole" style="height:420px; border-radius:8px">
+      <figcaption class="small">through the peephole: one chair</figcaption>
+    </figure>
+    <figure style="margin:0">
+      <img src="../../assets/lecture01/beuchet-side.jpg" alt="The same installation from the side: legs near, seat and backrest far away, peephole post in front" style="height:420px; border-radius:8px">
+      <figcaption class="small">from the side: legs near, seat and back far</figcaption>
+    </figure>
+    <div style="font-size:0.72em">
+      <p>The peephole is a <b>pinhole</b>: from that one viewpoint, the near legs and the far seat lie on the same rays and line up into a chair.</p>
+      <p>A camera measures only <b>directions</b>. Change distances along the rays and the image does not change.</p>
+      <p class="small">Move the eye a little (a second viewpoint) and the illusion breaks: that is the idea behind stereo, lecture 2.</p>
+    </div>
+  </div>
+  <div class="credit">Photos: Herzi Pinki, <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>, via Wikimedia Commons
+    (<a href="https://commons.wikimedia.org/wiki/File:Beuchet_chair_Kinderuni_Wien_01.jpg">1</a>, <a href="https://commons.wikimedia.org/wiki/File:Beuchet_chair_Kinderuni_Wien_02.jpg">2</a>)</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 5</div>
+  <h1>Vanishing points</h1>
+</section>
+
+<section>
+  <h2>Where do parallel lines meet?</h2>
+  <div class="cols">
+    <div>
+      <p>A 3D line through $P_0 = (x_0, y_0, z_0)$ with direction $l = (l_x, l_y, l_z)$, in camera coordinates: $\;P(t) = P_0 + t\,l$.</p>
+      <p>$$u(t) = f_x\,\frac{x_0 + t\,l_x}{z_0 + t\,l_z} + o_x \;\xrightarrow{t\to\infty}\; f_x\frac{l_x}{l_z} + o_x$$</p>
+      <p>The limit does not depend on $P_0$: all lines with direction $l$ meet at the <b>vanishing point</b></p>
+      <p>$$\tilde u_{vp} = K\,l$$</p>
+    </div>
+    <div class="box">
+      <h3>In homogeneous coordinates</h3>
+      <p class="small" style="font-size:0.72em">The direction $l$ is the point at infinity $(l_x, l_y, l_z, 0)$. Projecting it: $[K\,|\,0]\,(l, 0)^\top = K l$.</p>
+      <p class="small" style="font-size:0.72em">If $l_z = 0$ (lines parallel to the image plane) the vanishing point is at infinity: the lines stay parallel in the image.</p>
+      <p class="small" style="font-size:0.72em">The vanishing point is where the ray through the pinhole <b>parallel to the lines</b> hits the image plane.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Vanishing point and horizon</h2>
+  <div data-widget="camera3d" data-config='{"scene":"rails","showVP":true,"controls":["pose","railYaw","vp"],"yaw":84,"pitch":-6,"width":560,"height":400,"imageWidth":400}'></div>
+</section>
+
+<section>
+  <h2>What vanishing points are good for</h2>
+  <ul>
+    <li><b>Horizon</b>: vanishing points of all directions in a plane lie on one line, the vanishing line; for the ground plane with normal $n$: $\;\ell = K^{-\top} n$.</li>
+    <li><b>Camera orientation</b>: $K^{-1}\tilde u_{vp}$ is the 3D direction of the lines in camera coordinates, so known directions (walls, corridors, road markings) give the camera rotation.</li>
+    <li><b>Calibration</b>: vanishing points of two orthogonal directions satisfy $(K^{-1}\tilde u_1)^\top (K^{-1}\tilde u_2) = 0$, a constraint on $f$.</li>
+    <li><b>Translation does not matter</b>: moving the camera does not move vanishing points; only rotation does.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 6</div>
+  <h1>Lens distortion</h1>
+</section>
+
+<section>
+  <h2>Pinhole vs lens</h2>
+  <div data-widget="lens2d" data-config='{"aperture":0.5,"width":620,"height":400}'></div>
+  <p class="small" style="font-size:0.72em; margin-top:0.3em">A pinhole keeps <b>every depth</b> sharp but lets in little light. A lens gathers far more light, but brings each depth into focus at a <b>different distance</b> behind it ($\tfrac{1}{f} = \tfrac{1}{a} + \tfrac{1}{b}$): focusing = moving the sensor (or the lens) so the object you care about is sharp. For an in-focus point, the lens camera behaves geometrically like a pinhole at the lens centre.</p>
+</section>
+
+<section>
+  <h2>Modelling lens distortion</h2>
+  <p class="small" style="font-size:0.75em; margin:0">We keep the pinhole model and insert <b>one extra step</b>: the lens is modelled as a 2D warp of the normalised image plane, applied <b>between</b> $(x, y)$ and the pixel $(u, v)$.</p>
+  <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.4em; margin:0.5em 0; font-size:0.7em">
+    <div class="box center">3D point<br>$(x_c, y_c, z_c)$</div>
+    <div class="center dim">→<br><span class="small">divide by $z_c$<br>(ideal pinhole)</span></div>
+    <div class="box center">normalised<br>$(x, y) = \big(\tfrac{x_c}{z_c}, \tfrac{y_c}{z_c}\big)$</div>
+    <div class="center accent">→<br><span class="small"><b>distortion</b><br>(the lens)</span></div>
+    <div class="box key center">distorted<br>$(x_d, y_d)$</div>
+    <div class="center dim">→<br><span class="small">intrinsics<br>$K$</span></div>
+    <div class="box center">pixel<br>$(u, v)$</div>
+  </div>
+  <div class="cols" style="font-size:0.68em; grid-template-columns: 1.15fr 1fr">
+    <div>
+      <p>Brown–Conrady model (used by OpenCV), with $r^2 = x^2 + y^2$:</p>
+      <div style="font-size:0.88em; overflow-wrap:anywhere">$$\begin{aligned}
+      x_d &= x\,(1 + k_1 r^2 + k_2 r^4 + k_3 r^6) + 2p_1 xy + p_2(r^2 + 2x^2)\\
+      y_d &= y\,(1 + k_1 r^2 + k_2 r^4 + k_3 r^6) + p_1(r^2 + 2y^2) + 2p_2 xy
+      \end{aligned}$$
+      $$u = f_x x_d + o_x, \qquad v = f_y y_d + o_y$$</div>
+    </div>
+    <div>
+      <ul>
+        <li><b>radial</b> ($k_1, k_2, k_3$): grows with distance from the centre — barrel (wide-angle) or pincushion</li>
+        <li><b>tangential</b> ($p_1, p_2$): lens not parallel to the sensor</li>
+        <li>no distortion: $(x_d, y_d) = (x, y)$ — back to the pinhole camera</li>
+        <li>coefficients are estimated with $K$ during calibration (lecture 2)</li>
+        <li>fisheye lenses: a different model (<code>cv2.fisheye</code>)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Distortion to play with</h2>
+  <div data-widget="distort" data-config='{"preset":"barrel","width":540,"height":405}'></div>
+</section>
+
+<section>
+  <h2>Undistortion and a surprising side effect</h2>
+  <div class="cols c-2-1" style="grid-template-columns: auto 1fr">
+    <div data-widget="distort" data-config='{"preset":"foldover","width":480,"height":360}'></div>
+    <div class="small" style="font-size:0.7em">
+      <p><b>Undistortion</b> inverts the polynomial — no closed form, solved iteratively (<code>cv2.undistortPoints</code>).</p>
+      <p>The polynomial is fitted only inside the image. Outside, $r_d(r)$ can turn back: points <b>outside</b> the field of view (red) land <b>inside</b> the image.</p>
+      <p>Seen in practice: <a href="https://github.com/opencv/opencv/issues/17768">opencv#17768</a> — objects far outside the view reappear after projection.</p>
+      <p>Rule: only project points that are within the calibrated field of view.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>Summary</h2>
+  <div class="cols">
+    <div>
+      <h3>Transformations</h3>
+      <ul class="small" style="font-size:0.8em">
+        <li>geometric image ops act on the domain: $g = f \circ T^{-1}$</li>
+        <li>homogeneous coordinates make translation (and projection) linear</li>
+        <li>hierarchy: rigid ⊂ similarity ⊂ affine ⊂ projective</li>
+        <li>rigid motion $x \mapsto Rx + t$, $R \in SO(3)$; $4\times4$ form $SE(3)$</li>
+        <li>rotations: matrix, Euler (gimbal lock), axis–angle / rotation vector, quaternion</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Camera</h3>
+      <ul class="small" style="font-size:0.8em">
+        <li>$z_c\,(u, v, 1)^\top = K\,(x_c, y_c, z_c)^\top$</li>
+        <li>pixel → ray $K^{-1}(u, v, 1)^\top$; depth is lost</li>
+        <li>vanishing point of direction $l$: $K l$</li>
+        <li>lens distortion: polynomial in $r$; trust it only inside the image</li>
+      </ul>
+    </div>
+  </div>
+  <div class="takeaway">Practise these by hand — they come back in the labs and in the exam.</div>
+</section>
+
+<section>
+  <h2>Exercises</h2>
+  <ol class="small" style="font-size:0.8em">
+    <li>Compute $R_z(90^\circ)R_x(90^\circ)$ and $R_x(90^\circ)R_z(90^\circ)$. Where does each send $e_1, e_2, e_3$?</li>
+    <li>For $R = \begin{bmatrix}0&-1&0\\1&0&0\\0&0&1\end{bmatrix}$ find the axis and angle, the rotation vector, and the quaternion.</li>
+    <li>Show that $T^{-1} = \begin{bmatrix}R^\top & -R^\top t\\0^\top&1\end{bmatrix}$ for $T = \begin{bmatrix}R & t\\0^\top&1\end{bmatrix}$.</li>
+    <li>$f_x = f_y = 600$, $(o_x, o_y) = (320, 240)$. Project $(1, 0.5, 5)$. Which 3D points project to pixel $(320, 240)$?</li>
+    <li>Same camera: find the vanishing point of the direction $(1, 0, 1)$. Is it inside a $640\times480$ image?</li>
+    <li>Why does translating the camera not move vanishing points?</li>
+  </ol>
+</section>
+
+<section id="feedback" class="title-slide">
+  <h1>Feedback</h1>
+  <div style="display:flex; align-items:center; gap:1.5em; margin-top:0.5em">
+    <img src="../../assets/feedback-qr.svg" alt="QR code linking to tinyurl.com/mimuw-rc-feedback" style="width:340px; height:340px; box-sizing:content-box; padding:18px; background:#fff; border-radius:8px; margin:0">
+    <div>
+      <p>Please spend a minute: your feedback helps me improve the next lecture.</p>
+      <p style="font-family:var(--mono); font-size:1.1em"><a href="https://tinyurl.com/mimuw-rc-feedback">tinyurl.com/mimuw-rc-feedback</a></p>
+      <p class="small">Anonymous, no login, three questions.</p>
+    </div>
+  </div>
+</section>
+
+</div></div>
+<script type="module" src="../../shared/deck.js"></script>
+</body>
+</html>
