@@ -8,6 +8,7 @@
 # Lectures
 
 * [Lecture slides](slides/) (interactive, open in a browser)
+* [Lecture recordings](https://drive.google.com/drive/folders/1VTeFXL4C9ZTVlapPMHl1YphvSHqQJfnt?usp=sharing)
 
 # Additional materials
 
