@@ -10,6 +10,26 @@
 * [Lecture slides](slides/) (interactive, open in a browser)
 * [Lecture recordings](https://drive.google.com/drive/folders/1VTeFXL4C9ZTVlapPMHl1YphvSHqQJfnt?usp=sharing)
 
+Lecture plan (tentative, subject to change):
+
+| # | Date | Lecturer | Topic |
+|---|---|---|---|
+| 1 | Oct 7 | MC | Transformations & pinhole camera model |
+| 2 | Oct 14 | MC | Calibration & stereo |
+| 3 | Oct 21 | MC | Image stitching, epipolar geometry |
+| 4 | Oct 28 | MW + KC | 3D scene reconstruction (COLMAP, NeRF & Gaussian Splatting) + SLAM |
+| 5 | Nov 4 | MW | PID + simulation engines |
+| | Nov 11 | | *Independence Day, no lecture* |
+| 6 | Fri Nov 13 | MC | Drones (replaces Nov 11) |
+| 7 | Nov 18 | PN | Control theory 1 |
+| 8 | Nov 25 | PN | Control theory 2 |
+| 9 | Dec 2 | PN | Control theory 3 |
+| 10 | Dec 9 | MC | State estimation |
+| 11 | Dec 16 | WP | Robot kinematics |
+| | Dec 23 – Jan 6 | | *Christmas break* |
+| 12 | Jan 13 | MW | VLAs, MPC & World Action Models |
+| 13 | Jan 20 | KC | Quadrupeds + path planning |
+
 # Additional materials
 
 ## Additional materials:
