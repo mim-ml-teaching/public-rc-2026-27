@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Stereo depth · Geometry and live camera images</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      /* Match the lecture deck's dark theme and widget colors. */
+      --paper: #15171c; --panel: #1e2128; --ink: #e7e9ee; --muted: #9aa1ae;
+      --line: #3a3f4b; --accent: #f2b134; --left: #5ab0ff; --right: #f2b134;
+      --triangle: #b28dff; --soft: #272b34; --focus: #f2b134;
+      --ball: #ff6b6b;
+      font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; background: var(--paper); color: var(--ink); }
+    main { max-width: 1120px; margin: auto; }
+    h2 { margin: 0; font-size: 1rem; font-weight: 650; color: var(--accent); }
+    p { line-height: 1.6; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 18px; align-items: start; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+    .panel-header { padding: 18px 20px 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .hint { font-size: .8rem; color: var(--muted); }
+    .geometry, .coordinates { display: block; width: 100%; }
+    svg text { fill: var(--ink); font-family: inherit; font-size: 13px; }
+    svg .small { font-size: 12px; fill: var(--muted); }
+    svg .math { font-family: Georgia, "Times New Roman", serif; font-size: 16px; font-style: italic; }
+    svg .structure { stroke: var(--line); stroke-width: 1.5; fill: none; }
+    svg .dimension { stroke: var(--muted); stroke-width: 1.25; fill: none; }
+    svg .left-ray { stroke: var(--left); stroke-width: 2; fill: none; }
+    svg .right-ray { stroke: var(--right); stroke-width: 2; fill: none; }
+    svg .triangle { fill: var(--triangle); fill-opacity: .16; stroke: var(--triangle); stroke-width: 1.25; }
+    svg .point { cursor: grab; touch-action: none; }
+    svg.dragging, svg.dragging .point { cursor: grabbing; }
+    svg .point:focus { outline: none; }
+    svg .point:focus .point-halo { stroke: var(--focus); stroke-width: 2; stroke-dasharray: 3 3; }
+    .coordinates-wrap { border-top: 1px solid var(--line); padding: 16px 20px 4px; }
+    .coordinate-heading { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .coordinates-caption { margin: 0 0 12px; font-size: .8rem; color: var(--muted); }
+    .camera-views { padding: 16px 20px; border-top: 1px solid var(--line); }
+    .camera-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+    .camera-grid figure { min-width: 0; margin: 0; }
+    .camera-grid figcaption { font-size: .88rem; font-weight: 600; margin-bottom: 8px; }
+    .camera-grid .left-caption { color: var(--left); }
+    .camera-grid .right-caption { color: var(--right); }
+    .camera-grid canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+    .camera-readout { margin: 8px 0 0; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1.5; }
+    .camera-disparity { margin: 14px 0 0; font-size: .88rem; font-variant-numeric: tabular-nums; }
+    #camera-status { color: var(--right); }
+    .controls { padding: 20px; }
+    .controls h2 { margin-bottom: 18px; }
+    .control { margin-bottom: 16px; }
+    .control label { display: flex; justify-content: space-between; gap: 10px; font-size: .88rem; margin-bottom: 7px; color: var(--muted); }
+    output { font-variant-numeric: tabular-nums; color: var(--ink); }
+    input[type="range"] { width: 100%; accent-color: var(--accent); margin: 2px 0; cursor: ew-resize; }
+    input[type="checkbox"] { accent-color: var(--triangle); }
+    button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    button:hover { background: var(--soft); border-color: var(--accent); }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+    .check { display: flex; align-items: center; gap: 8px; font-size: .88rem; }
+    .reset { margin-top: 18px; width: 100%; }
+    noscript p { background: var(--panel); padding: 18px; border: 1px solid var(--line); }
+    @media (max-width: 760px) {
+      body { padding: 16px; }
+      .workspace { grid-template-columns: 1fr; }
+      .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+      .controls h2, .check, .reset { grid-column: 1 / -1; }
+      .controls { order: -1; }
+      .panel-header { padding: 16px 16px 0; }
+      .coordinates-wrap { padding: 16px 12px 4px; }
+      .camera-views { padding: 16px 12px; }
+      .camera-grid { gap: 10px; }
+    }
+    @media (max-width: 380px) {
+      body { padding: 10px; }
+      .controls { padding: 16px; }
+      .controls { column-gap: 12px; }
+      .control label { flex-direction: column; gap: 2px; }
+    }
+    @media (max-width: 480px) {
+      .camera-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="workspace">
+    <section class="panel" aria-labelledby="geometry-heading">
+      <div class="panel-header">
+        <h2 id="geometry-heading">A ball seen by two cameras</h2>
+        <span class="hint">Drag P · arrow keys also work</span>
+      </div>
+      <noscript><p>Enable JavaScript to move the geometry. For the static derivation, see <a href="depth_calculation.png">the original illustration</a>.</p></noscript>
+      <svg id="geometry" class="geometry" role="group" aria-labelledby="geometry-title geometry-description"></svg>
+      <div class="camera-views">
+        <div class="coordinate-heading">
+          <h2>Live camera images</h2>
+          <span class="hint">Real sensor planes · inverted images</span>
+        </div>
+        <div class="camera-grid">
+          <figure>
+            <figcaption class="left-caption">Left camera · O₁</figcaption>
+            <canvas id="left-image" width="480" height="300" role="img" aria-label="Image from the left camera"></canvas>
+            <p id="left-readout" class="camera-readout"></p>
+          </figure>
+          <figure>
+            <figcaption class="right-caption">Right camera · O₂</figcaption>
+            <canvas id="right-image" width="480" height="300" role="img" aria-label="Image from the right camera"></canvas>
+            <p id="right-readout" class="camera-readout"></p>
+          </figure>
+        </div>
+        <p id="camera-disparity" class="camera-disparity"></p>
+        <p id="camera-status" class="camera-readout" role="status" aria-live="polite"></p>
+      </div>
+      <div class="coordinates-wrap">
+        <div class="coordinate-heading">
+          <h2>Image coordinates</h2>
+          <span class="hint">Origins aligned · enlarged scale</span>
+        </div>
+        <svg id="coordinates" class="coordinates" role="img" aria-labelledby="coordinates-title coordinates-description"></svg>
+        <p class="coordinates-caption">Align the image origins before measuring disparity; do not measure between the separate image planes above.</p>
+      </div>
+    </section>
+    <section class="panel controls" aria-labelledby="controls-heading">
+      <h2 id="controls-heading">Explore the geometry</h2>
+      <div class="control">
+        <label for="depth">Depth Z <output id="depth-value" for="depth"></output></label>
+        <input id="depth" type="range" min="1.5" max="6" step="0.05" value="3.5">
+      </div>
+      <div class="control">
+        <label for="horizontal">Position X <output id="horizontal-value" for="horizontal"></output></label>
+        <input id="horizontal" type="range" min="-1" max="3.5" step="0.05" value="0.7">
+      </div>
+      <div class="control">
+        <label for="baseline">Baseline B <output id="baseline-value" for="baseline"></output></label>
+        <input id="baseline" type="range" min="0.5" max="2.5" step="0.05" value="2">
+      </div>
+      <div class="control">
+        <label for="focal">Focal length f <output id="focal-value" for="focal"></output></label>
+        <input id="focal" type="range" min="0.3" max="1.2" step="0.05" value="0.8">
+      </div>
+      <label class="check"><input id="triangles" type="checkbox" checked> Highlight similar triangles</label>
+      <button id="reset" class="reset" type="button">Reset geometry</button>
+    </section>
+  </div>
+</main>
+<script>
+(() => {
+  'use strict';
+  // Keep the geometry in world units. Screen coordinates are only a drawing transform.
+  const defaults = { Z: 3.5, X: 0.7, B: 2, f: 0.8, triangles: true };
+  const state = { ...defaults };
+  const controls = { Z: 'depth', X: 'horizontal', B: 'baseline', f: 'focal' };
+  const byId = id => document.getElementById(id);
+  const svg = byId('geometry');
+  const coordinateSvg = byId('coordinates');
+  // Both finite sensors have fixed dimensions and resolution. Changing f changes
+  // field of view, not the drawing scale, so pixel disparity remains meaningful.
+  const SENSOR_WIDTH = 2.4;
+  const BALL_RADIUS = .4;
+  const imageViews = [
+    { canvas: byId('left-image'), readout: byId('left-readout'), name: 'Left', origin: 'O₁', coordinate: 'x', color: 'left' },
+    { canvas: byId('right-image'), readout: byId('right-readout'), name: 'Right', origin: 'O₂', coordinate: 'x′', color: 'right' }
+  ];
+  imageViews.forEach(view => {
+    view.context = view.canvas.getContext('2d');
+    view.pixels = view.context.createImageData(view.canvas.width, view.canvas.height);
+  });
+  let imageFrame = null;
+  let transform;
+  let dragOffset = null;
+  const fmt = (n, digits = 3) => (Math.abs(n) < 0.5 * 10 ** -digits ? 0 : n).toFixed(digits);
+  const clamp = (n, low, high) => Math.max(low, Math.min(high, n));
+
+  function project() {
+    // Real image planes behind the pinholes invert the horizontal coordinates.
+    const left = -state.f * state.X / state.Z;
+    const right = -state.f * (state.X - state.B) / state.Z;
+    return { left, right, d: right - left };
+  }
+
+  function line(x1, y1, x2, y2, cls = 'structure', extra = '') {
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls}" ${extra}/>`;
+  }
+  function label(x, y, text, cls = '', anchor = 'middle') {
+    return `<text x="${x}" y="${y}" text-anchor="${anchor}" class="${cls}">${text}</text>`;
+  }
+  function dimension(x1, y1, x2, y2, text, lx, ly) {
+    return line(x1, y1, x2, y2, 'dimension', 'marker-start="url(#arrow)" marker-end="url(#arrow)"') + label(lx, ly, text, 'math');
+  }
+  function circle(x, y, radius, color) {
+    return `<circle cx="${x}" cy="${y}" r="${radius}" fill="var(--${color})" stroke="var(--panel)" stroke-width="1.5"/>`;
+  }
+  function diamond(x, y, color) {
+    return `<path d="M ${x} ${y - 6} l 6 6 -6 6 -6 -6 Z" fill="var(--${color})" stroke="var(--panel)" stroke-width="1.5"/>`;
+  }
+
+  function drawGeometry(p) {
+    const pointFocused = document.activeElement && document.activeElement.dataset.point === 'true';
+    const width = svg.getBoundingClientRect().width;
+    const s = Math.min(54, (width - 100) / 7.5);
+    const baseY = 6 * s + 40;
+    const height = baseY + 1.2 * s + 94;
+    const leftX = width / 2 - state.B * s / 2;
+    const rightX = leftX + state.B * s;
+    const pointX = leftX + state.X * s;
+    const pointY = baseY - state.Z * s;
+    const planeY = baseY + state.f * s;
+    const projectionL = leftX + p.left * s;
+    const projectionR = rightX + p.right * s;
+    const copiedR = leftX + p.right * s;
+    transform = { s, leftX, baseY };
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.style.height = `${height}px`;
+
+    let drawing = `<title id="geometry-title">Stereo camera geometry</title>
+      <desc id="geometry-description">Point P at X ${fmt(state.X)} metres and depth ${fmt(state.Z)} metres is projected by two parallel cameras, ${fmt(state.B)} metres apart, onto real image planes behind the pinholes. The focal length is ${fmt(state.f)} metres. The smaller highlighted triangle is constructed by translating the right projection to the left image origin.</desc>
+      <defs><marker id="arrow" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 8 4 L 0 0 L 0 8 Z" fill="var(--muted)"/></marker></defs>`;
+    if (state.triangles) {
+      drawing += `<polygon points="${pointX},${pointY} ${leftX},${baseY} ${rightX},${baseY}" class="triangle"/>
+        <polygon points="${leftX},${baseY} ${projectionL},${planeY} ${copiedR},${planeY}" class="triangle"/>`;
+    }
+    // Parallel optical axes and coplanar, ideal image planes.
+    drawing += line(leftX, 30, leftX, baseY + 1.2 * s + 22, 'structure', 'stroke-dasharray="4 5"');
+    drawing += line(rightX, 30, rightX, baseY + 1.2 * s + 22, 'structure', 'stroke-dasharray="4 5"');
+    drawing += line(18, planeY, width - 18, planeY);
+    drawing += line(leftX, baseY, rightX, baseY, 'dimension');
+    drawing += line(pointX, pointY, pointX, baseY, 'dimension', 'stroke-dasharray="3 5"');
+    drawing += line(pointX, pointY, leftX, baseY, 'left-ray');
+    drawing += line(pointX, pointY, rightX, baseY, 'right-ray');
+    drawing += line(leftX, baseY, projectionL, planeY, 'left-ray');
+    drawing += line(rightX, baseY, projectionR, planeY, 'right-ray');
+    if (state.triangles) {
+      drawing += line(leftX, baseY, copiedR, planeY, 'right-ray', 'stroke-dasharray="4 5" opacity=".8"');
+      drawing += `<circle cx="${copiedR}" cy="${planeY}" r="5" fill="var(--panel)" stroke="var(--right)" stroke-width="1.5"/>`;
+    }
+    const bY = baseY + 1.2 * s + 56;
+    drawing += line(leftX, baseY + 4, leftX, bY + 4, 'structure');
+    drawing += line(rightX, baseY + 4, rightX, bY + 4, 'structure');
+    drawing += dimension(leftX, bY, rightX, bY, `B = ${fmt(state.B, 2)} m`, width / 2, bY + 22);
+    const fX = leftX - 28;
+    drawing += dimension(fX, baseY, fX, planeY, 'f', fX - 12, (baseY + planeY) / 2 + 5);
+    const zX = width - 27;
+    drawing += line(pointX + 12, pointY, zX + 4, pointY, 'structure');
+    drawing += line(rightX + 8, baseY, zX + 4, baseY, 'structure');
+    drawing += dimension(zX, pointY, zX, baseY, 'Z', zX - 13, (pointY + baseY) / 2 + 5);
+    drawing += circle(leftX, baseY, 5, 'left') + diamond(rightX, baseY, 'right');
+    const cameraY = baseY - 16;
+    drawing += label(leftX, cameraY, 'Left camera', 'small') + label(rightX, cameraY, 'Right camera', 'small');
+    // Stagger origin/projection labels so coincident points remain readable.
+    const originY = planeY + 20;
+    const positionY = planeY + 39;
+    drawing += circle(leftX, planeY, 3, 'muted') + circle(rightX, planeY, 3, 'muted');
+    drawing += label(leftX, originY, 'O₁', 'math') + label(rightX, originY, 'O₂', 'math');
+    drawing += circle(projectionL, planeY, 5, 'left') + diamond(projectionR, planeY, 'right');
+    drawing += label(projectionL, positionY, 'x', 'math');
+    drawing += label(projectionR, positionY, 'x′', 'math');
+    const pointAnchor = pointX > width * .7 ? 'end' : 'start';
+    drawing += label(pointX + (pointAnchor === 'end' ? -15 : 15), pointY - 12, 'P', 'math', pointAnchor);
+    // Horizontal cross-section of the same sphere rendered in both camera views.
+    drawing += `<circle cx="${pointX}" cy="${pointY}" r="${BALL_RADIUS * s}" fill="var(--ball)" fill-opacity=".18" stroke="var(--ball)" stroke-width="1.5"/>`;
+    drawing += `<g class="point" data-point="true" tabindex="0" role="button" aria-label="Move point P. X ${fmt(state.X, 2)}, Z ${fmt(state.Z, 2)} metres. Use left and right arrows for X, up and down arrows for depth.">
+      <circle class="point-halo" cx="${pointX}" cy="${pointY}" r="18" fill="transparent"/>
+      <circle cx="${pointX}" cy="${pointY}" r="7" fill="var(--ink)" stroke="var(--panel)" stroke-width="2"/>
+    </g>`;
+    svg.innerHTML = drawing;
+    if (pointFocused) svg.querySelector('[data-point]').focus({ preventScroll: true });
+  }
+
+  function drawCoordinates(p) {
+    const width = coordinateSvg.getBoundingClientRect().width;
+    // Fixed scale: changing depth or baseline must visibly change disparity.
+    // ±3.2 m covers every projection within the controls' allowed ranges.
+    const center = width / 2;
+    const s = (width - 50) / 6.4;
+    const l = center + p.left * s;
+    const r = center + p.right * s;
+    coordinateSvg.setAttribute('viewBox', `0 0 ${width} 177`);
+    coordinateSvg.style.height = '177px';
+    const leftName = 'x';
+    const rightName = 'x′';
+    let drawing = `<title id="coordinates-title">Projections relative to a common image origin</title>
+      <desc id="coordinates-description">Left coordinate ${fmt(p.left)} metres. Right coordinate ${fmt(p.right)} metres. Disparity ${fmt(p.d)} metres. The origins are aligned and the coordinate scale stays fixed as parameters change.</desc>
+      <defs><marker id="coord-arrow" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 8 4 L 0 0 L 0 8 Z" fill="var(--muted)"/></marker></defs>`;
+    drawing += line(22, 94, width - 22, 94, 'structure', 'marker-end="url(#coord-arrow)"');
+    drawing += line(center, 28, center, 102, 'structure', 'stroke-dasharray="3 4"');
+    drawing += label(center, 117, '0', 'small');
+    drawing += label(23, 117, '−', 'small') + label(width - 25, 117, '+', 'small');
+    drawing += line(center, 45, l, 45, 'left-ray') + circle(l, 45, 5, 'left');
+    drawing += line(center, 78, r, 78, 'right-ray') + diamond(r, 78, 'right');
+    // Value labels anchor toward the inside when near an edge.
+    drawing += label(l, 30, `${leftName} = ${fmt(p.left)} m`, 'small', l < width / 3 ? 'start' : l > width * 2 / 3 ? 'end' : 'middle');
+    drawing += label(r, 64, `${rightName} = ${fmt(p.right)} m`, 'small', r < width / 3 ? 'start' : r > width * 2 / 3 ? 'end' : 'middle');
+    drawing += line(l, 98, l, 139, 'structure') + line(r, 98, r, 139, 'structure');
+    drawing += line(Math.min(l, r), 137, Math.max(l, r), 137, 'dimension', 'marker-start="url(#coord-arrow)" marker-end="url(#coord-arrow)"');
+    drawing += label(center, 163, `d = x′ − x = ${fmt(p.d)} m`, 'math');
+    coordinateSvg.innerHTML = drawing;
+  }
+
+  function render() {
+    for (const [key, id] of Object.entries(controls)) {
+      byId(id).value = state[key];
+      byId(`${id}-value`).value = `${fmt(state[key], 2)} m`;
+      byId(id).setAttribute('aria-valuetext', `${fmt(state[key], 2)} metres`);
+    }
+    byId('triangles').checked = state.triangles;
+    const p = project();
+    drawGeometry(p);
+    drawCoordinates(p);
+    // Coalesce pointer/slider events into a single image update per display frame.
+    if (imageFrame === null) imageFrame = requestAnimationFrame(() => {
+      imageFrame = null;
+      drawCameraImages(project());
+    });
+  }
+
+  // A small software renderer keeps this variant a single offline HTML file.
+  // Rays intersect a real 3D sphere, a checker floor, and a distant back wall.
+  // For a real sensor point (sx, sy, -f), the forward ray is (-sx, -sy, f).
+  // Canvas rows point down, so ray y = (row - cy) / pixelsPerMetre.
+  function drawCameraImage(view, cameraX, coordinate, palette) {
+    const canvas = view.canvas;
+    const W = canvas.width, H = canvas.height, scale = W / SENSOR_WIDTH;
+    const cx = W / 2, cy = H / 2;
+    const f = state.f, f2 = f * f;
+    const ocx = cameraX - state.X;
+    const sphereC = ocx * ocx + state.Z * state.Z - BALL_RADIUS * BALL_RADIUS;
+    const buffer = view.pixels.data;
+    const wallZ = 9;
+    const floorY = -.55;
+    const lightLength = Math.hypot(-.4, .7, -.6);
+    const light = [-.4 / lightLength, .7 / lightLength, -.6 / lightLength];
+    for (let row = 0; row < H; row++) {
+      const dy = (row + .5 - cy) / scale;
+      for (let column = 0; column < W; column++) {
+        const dx = -(column + .5 - cx) / scale;
+        const a = dx * dx + dy * dy + f2;
+        const b = dx * ocx - f * state.Z;
+        const discriminant = b * b - a * sphereC;
+        let color, brightness;
+        let sphereT = Infinity;
+        if (discriminant >= 0) sphereT = (-b - Math.sqrt(discriminant)) / a;
+        const floorT = dy < 0 ? floorY / dy : Infinity;
+        const wallT = wallZ / f;
+        if (sphereT > 0 && sphereT < Math.min(floorT, wallT)) {
+          const nx = (ocx + sphereT * dx) / BALL_RADIUS;
+          const ny = sphereT * dy / BALL_RADIUS;
+          const nz = (sphereT * f - state.Z) / BALL_RADIUS;
+          const diffuse = Math.max(0, nx * light[0] + ny * light[1] + nz * light[2]);
+          // A small specular highlight makes the curvature visible in each view.
+          const rayLength = Math.sqrt(a);
+          const hx = light[0] - dx / rayLength;
+          const hy = light[1] - dy / rayLength;
+          const hz = light[2] - f / rayLength;
+          const halfLength = Math.hypot(hx, hy, hz);
+          const specular = .28 * Math.pow(Math.max(0, (nx * hx + ny * hy + nz * hz) / halfLength), 36);
+          color = palette.ball;
+          brightness = .24 + .76 * diffuse;
+          const index = (row * W + column) * 4;
+          buffer[index] = Math.min(255, color[0] * brightness + 255 * specular);
+          buffer[index + 1] = Math.min(255, color[1] * brightness + 255 * specular);
+          buffer[index + 2] = Math.min(255, color[2] * brightness + 255 * specular);
+          buffer[index + 3] = 255;
+          continue;
+        }
+        if (floorT < wallT) {
+          const worldX = cameraX + floorT * dx;
+          const worldZ = floorT * f;
+          const checker = (Math.floor(worldX) + Math.floor(worldZ)) % 2 === 0;
+          color = checker ? palette.floorLight : palette.floorDark;
+          // Soft contact shadow under the ball; shading is fixed in world space.
+          const distance2 = (worldX - state.X) ** 2 + (worldZ - state.Z) ** 2;
+          brightness = (1 - .45 * Math.exp(-distance2 / .22)) * (1 - .25 * worldZ / wallZ);
+        } else {
+          const worldX = cameraX + wallT * dx;
+          const worldY = wallT * dy;
+          const gx = Math.abs(worldX - Math.round(worldX));
+          const gy = Math.abs(worldY - Math.round(worldY));
+          color = gx < .02 || gy < .02 ? palette.wallGrid : palette.wall;
+          brightness = 1;
+        }
+        const index = (row * W + column) * 4;
+        buffer[index] = color[0] * brightness;
+        buffer[index + 1] = color[1] * brightness;
+        buffer[index + 2] = color[2] * brightness;
+        buffer[index + 3] = 255;
+      }
+    }
+    const g = view.context;
+    g.putImageData(view.pixels, 0, 0);
+    // The projection is computed from the ball centre, not its silhouette centre.
+    const pixel = cx + coordinate * scale;
+    const visible = pixel >= 0 && pixel < W;
+    canvas.dataset.projection = pixel;
+    g.strokeStyle = palette.mutedCss;
+    g.lineWidth = 1;
+    g.setLineDash([5, 5]);
+    g.beginPath();
+    g.moveTo(cx, 0); g.lineTo(cx, H);
+    g.moveTo(0, cy); g.lineTo(W, cy);
+    g.stroke();
+    g.setLineDash([]);
+    g.fillStyle = palette.inkCss;
+    g.font = '15px "Segoe UI", Arial, sans-serif';
+    g.textAlign = 'left';
+    g.fillText(`${view.origin} · column ${cx}`, cx + 8, H - 13);
+    const viewColor = palette[view.color + 'Css'];
+    g.strokeStyle = viewColor;
+    g.fillStyle = viewColor;
+    g.lineWidth = 2;
+    if (visible) {
+      g.beginPath();
+      if (view.color === 'left') g.arc(pixel, cy, 6, 0, 2 * Math.PI);
+      else { g.moveTo(pixel, cy - 7); g.lineTo(pixel + 7, cy); g.lineTo(pixel, cy + 7); g.lineTo(pixel - 7, cy); g.closePath(); }
+      g.stroke();
+      g.beginPath();
+      g.moveTo(pixel - 10, cy); g.lineTo(pixel + 10, cy);
+      g.moveTo(pixel, cy - 10); g.lineTo(pixel, cy + 10);
+      g.stroke();
+      g.textAlign = pixel > W * .7 ? 'right' : 'left';
+      g.fillText('P', pixel + (pixel > W * .7 ? -14 : 14), cy - 14);
+    } else {
+      // Keep off-screen projections explicit rather than rescaling the image.
+      const edge = pixel < 0 ? 14 : W - 14;
+      const direction = pixel < 0 ? -1 : 1;
+      g.beginPath();
+      g.moveTo(edge, cy); g.lineTo(edge - direction * 10, cy - 7);
+      g.lineTo(edge - direction * 10, cy + 7); g.closePath(); g.fill();
+    }
+    view.readout.textContent = `${view.coordinate} = ${fmt(coordinate)} m · column = ${fmt(pixel, 1)} px${visible ? '' : ' (outside image)'}`;
+    canvas.setAttribute('aria-label', `${view.name} real sensor image of a red 3D ball. Projection of P: ${view.coordinate} ${fmt(coordinate)} metres, column ${fmt(pixel, 1)} pixels${visible ? '' : ', outside the image'}.`);
+    return visible;
+  }
+
+  function drawCameraImages(p) {
+    // Reuse the lecture palette for surfaces, the sphere, and annotation colors.
+    const style = getComputedStyle(document.documentElement);
+    const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+    const palette = {
+      ball: rgb(style.getPropertyValue('--ball').trim()),
+      floorLight: rgb('#4a505c'), floorDark: rgb('#30343d'),
+      wall: rgb('#1b1d22'), wallGrid: rgb('#3a3f4b'),
+      mutedCss: style.getPropertyValue('--muted').trim(),
+      inkCss: style.getPropertyValue('--ink').trim(),
+      leftCss: style.getPropertyValue('--left').trim(),
+      rightCss: style.getPropertyValue('--right').trim()
+    };
+    const leftVisible = drawCameraImage(imageViews[0], 0, p.left, palette);
+    const rightVisible = drawCameraImage(imageViews[1], state.B, p.right, palette);
+    const scale = imageViews[0].canvas.width / SENSOR_WIDTH;
+    const disparityPx = p.d * scale;
+    const focalPx = state.f * scale;
+    byId('camera-disparity').textContent = `d = x′ − x = ${fmt(p.d)} m = ${fmt(disparityPx, 1)} px · f = ${fmt(focalPx, 1)} px · recovered Z = ${fmt(focalPx * state.B / disparityPx, 2)} m`;
+    byId('camera-status').textContent = leftVisible && rightVisible ? ''
+      : 'P is outside at least one sensor. Reduce f or move P toward the shared field of view to see both projections.';
+  }
+  for (const [key, id] of Object.entries(controls)) {
+    byId(id).addEventListener('input', event => {
+      state[key] = Number(event.target.value);
+      render();
+    });
+  }
+  byId('triangles').addEventListener('change', event => { state.triangles = event.target.checked; render(); });
+  byId('reset').addEventListener('click', () => { Object.assign(state, defaults); render(); });
+  function pointerPosition(event) {
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    return { X: (point.x - transform.leftX) / transform.s, Z: (transform.baseY - point.y) / transform.s };
+  }
+  function movePoint(X, Z) {
+    const round = n => Math.round(n / .05) * .05;
+    state.X = clamp(round(X), -1, 3.5);
+    state.Z = clamp(round(Z), 1.5, 6);
+    render();
+  }
+  svg.addEventListener('pointerdown', event => {
+    if (!event.target.closest('[data-point]') || event.button !== 0) return;
+    event.preventDefault();
+    svg.querySelector('[data-point]').focus({ preventScroll: true });
+    const position = pointerPosition(event);
+    dragOffset = { X: state.X - position.X, Z: state.Z - position.Z };
+    svg.setPointerCapture(event.pointerId);
+    svg.classList.add('dragging');
+  });
+  svg.addEventListener('pointermove', event => {
+    if (!dragOffset) return;
+    const position = pointerPosition(event);
+    movePoint(position.X + dragOffset.X, position.Z + dragOffset.Z);
+  });
+  function endDrag() { dragOffset = null; svg.classList.remove('dragging'); }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('lostpointercapture', endDrag);
+  svg.addEventListener('keydown', event => {
+    if (!event.target.closest('[data-point]')) return;
+    const moves = { ArrowLeft: [-.05, 0], ArrowRight: [.05, 0], ArrowUp: [0, .05], ArrowDown: [0, -.05] };
+    if (!moves[event.key]) return;
+    event.preventDefault();
+    const [dx, dz] = moves[event.key];
+    movePoint(state.X + dx, state.Z + dz);
+  });
+
+  // Recompute the drawing scale after resizing; the model and coordinate-strip scale remain stable.
+  new ResizeObserver(render).observe(svg.parentElement);
+  // A parent page can size its iframe to the content without a fixed mobile height.
+  let lastHeight = 0;
+  new ResizeObserver(() => {
+    if (window.parent === window) return;
+    const height = Math.ceil(document.querySelector('main').getBoundingClientRect().height
+      + parseFloat(getComputedStyle(document.body).paddingTop)
+      + parseFloat(getComputedStyle(document.body).paddingBottom));
+    if (height !== lastHeight) {
+      lastHeight = height;
+      window.parent.postMessage({ type: 'stereo-depth-resize', height }, window.location.origin === 'null' ? '*' : window.location.origin);
+    }
+  }).observe(document.querySelector('main'));
+  render();
+})();
+</script>
+</body>
+</html>
