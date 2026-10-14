@@ -59,15 +59,19 @@ export function viewButtons(stage, views) {
   });
 }
 
-// Text sprite that always faces the camera.
-export function label(text, { color = '#e7e9ee', size = 0.28, font = 'italic 64px "Times New Roman", serif' } = {}) {
+// Text sprite that always faces the camera. `sub`: an optional subscript drawn after the text.
+export function label(text, { color = '#e7e9ee', size = 0.28, font = 'italic 64px "Times New Roman", serif', sub = '' } = {}) {
   const c = document.createElement('canvas');
   const g = c.getContext('2d');
+  const subFont = font.replace(/\d+px/, '42px');
   g.font = font;
-  const w = Math.ceil(g.measureText(text).width) + 16;
+  const tw = g.measureText(text).width;
+  g.font = subFont;
+  const w = Math.ceil(tw + (sub ? g.measureText(sub).width + 4 : 0)) + 16;
   c.width = w; c.height = 84;
   g.font = font; g.fillStyle = color; g.textBaseline = 'middle';
-  g.fillText(text, 8, 44);
+  g.fillText(text, 8, sub ? 40 : 44);
+  if (sub) { g.font = subFont; g.fillText(sub, 10 + tw, 58); }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));

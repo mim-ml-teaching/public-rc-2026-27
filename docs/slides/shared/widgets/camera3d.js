@@ -13,6 +13,8 @@
 //   physical: false     show the physical (inverted) image plane behind the pinhole
 //   rays: false         projection rays from the house corners to the pinhole
 //   click: [u, v]       an initial back-projected pixel
+//   extrinsics: false   world frame at the origin + readout of R, t (p_c = R p_w + t) and P = K[R|t];
+//                       controls "move" adds sliders for the camera centre C
 // }
 import { C as COL, h, fmt, isPrint } from './util.js';
 import { THREE, makeStage, label, line, arrow3, viewButtons } from './three-util.js';
@@ -142,9 +144,11 @@ export function mount(el, cfg) {
   const { scene, render } = stage;
 
   el.classList.add('widget');
+  // extrinsics: the sliders go under the 3D view, the right column keeps the image and the matrices
+  const ctlLeft = !!cfg.extrinsics;
   el.append(h('div', { style: 'display:flex; gap:0.8em; align-items:flex-start' },
-    h('div', {}, c3, h('div', { class: 'wctl interactive-only', style: 'gap:0.3em' }, viewButtons(stage, [view3d, viewSide, viewTop]))),
-    h('div', { style: 'display:flex; flex-direction:column; gap:0.4em' }, img, readout, ctl)));
+    h('div', {}, c3, h('div', { class: 'wctl interactive-only', style: 'gap:0.3em' }, viewButtons(stage, [view3d, viewSide, viewTop])), ...(ctlLeft ? [ctl] : [])),
+    h('div', { style: 'display:flex; flex-direction:column; gap:0.4em' }, img, readout, ...(ctlLeft ? [] : [ctl]))));
 
   // ---- static 3D content ----
   const worldGroup = new THREE.Group(); scene.add(worldGroup);
@@ -168,6 +172,12 @@ export function mount(el, cfg) {
     }
   };
   buildWorld();
+  if (cfg.extrinsics) {
+    [[[1.2, 0, 0], 0xff6b6b, 'x_w'], [[0, 1.2, 0], 0x5fd38d, 'y_w'], [[0, 0, 1.2], 0x5ab0ff, 'z_w']].forEach(([d, c, n]) => {
+      scene.add(arrow3(T(0, 0, 0), T(...d), c, 0.12));
+      const l = label(n, { color: '#' + c.toString(16).padStart(6, '0'), size: 0.3 }); l.position.set(...T(...d.map(v => v * 1.15))); scene.add(l);
+    });
+  }
   const tex = new THREE.CanvasTexture(img); tex.colorSpace = THREE.SRGBColorSpace;
   const planeMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
 
@@ -321,7 +331,16 @@ export function mount(el, cfg) {
       dyn.add(line([T(...Cw), T(...add(Cw, scl(dw, -2 * dv)))], 0xf2b134, { dashed: true }));
       rayText = `<div>pixel $(${Math.round(u)}, ${Math.round(v)})$ → ray $\\;z\\,(${fmt(dcam[0], 3)},\\ ${fmt(dcam[1], 3)},\\ 1),\\ z>0$</div>`;
     }
-    readout.innerHTML =
+    if (cfg.extrinsics) {
+      const t = R.map(r => -dot(r, Cw)), m = v => fmt(v, 2);
+      const Kt = [[state.f, 0, state.ox], [0, state.f, state.oy], [0, 0, 1]];
+      const Rt = R.map((r, i) => [...r, t[i]]);
+      const P = Kt.map(k => [0, 1, 2, 3].map(j => k[0] * Rt[0][j] + k[1] * Rt[1][j] + k[2] * Rt[2][j]));
+      readout.innerHTML =
+        `<div>$C = (${m(Cw[0])},\\ ${m(Cw[1])},\\ ${m(Cw[2])})$</div>` +
+        `<div style="margin-top:0.3em">$[R\\,|\\,t] = \\left[\\begin{array}{ccc|c}${R.map((r, i) => r.map(m).join('&') + '&' + m(t[i])).join('\\\\')}\\end{array}\\right]$</div>` +
+        `<div style="margin-top:0.3em">$P = K[R\\,|\\,t] = \\left[\\begin{array}{ccc|c}${P.map((r, i) => r.map(v => fmt(v, i < 2 ? 0 : 2)).join('&')).join('\\\\')}\\end{array}\\right]$</div>`;
+    } else readout.innerHTML =
       `<div>$K = \\begin{bmatrix}${fmt(state.f, 0)}&0&${fmt(state.ox, 0)}\\\\0&${fmt(state.f, 0)}&${fmt(state.oy, 0)}\\\\0&0&1\\end{bmatrix}$</div>` + rayText;
     window.renderMathInElement?.(readout, { delimiters: [{ left: '$', right: '$', display: false }], throwOnError: false });
     render();
@@ -345,6 +364,12 @@ export function mount(el, cfg) {
   };
   if (controlsWanted.has('f')) ctl.append(slider('f', 150, 1200, 1, 'focal f'));
   if (controlsWanted.has('o')) ctl.append(slider('ox', 100, 540, 1, h('span', {}, 'o', h('sub', {}, 'x'))), slider('oy', 80, 400, 1, h('span', {}, 'o', h('sub', {}, 'y'))));
+  if (controlsWanted.has('move')) ['x', 'y', 'z'].forEach((n, i) => {
+    const sl = h('input', { type: 'range', min: [-6, -9, 0.3][i], max: [6, -2, 5][i], step: 0.05, value: state.pos[i] });
+    const val = h('span', { class: 'readout', style: 'display:inline-block; width:3.5em; text-align:right' }, fmt(state.pos[i], 1));
+    sl.addEventListener('input', () => { state.pos = state.pos.map((v, k) => (k === i ? +sl.value : v)); val.textContent = fmt(state.pos[i], 1); draw(); });
+    ctl.append(h('div', { style: 'display:flex; align-items:center; gap:0.4em' }, h('label', { style: 'width:5.5em' }, `cam ${n}`), sl, val));
+  });
   if (controlsWanted.has('pose')) ctl.append(slider('yaw', 30, 150, 1, 'cam yaw'), slider('pitch', -40, 40, 1, 'cam pitch'));
   if (controlsWanted.has('railYaw')) ctl.append(slider('railYaw', -60, 60, 1, 'rails dir'));
   const toggles = [];

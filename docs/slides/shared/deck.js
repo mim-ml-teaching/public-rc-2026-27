@@ -7,6 +7,8 @@ import { applyTheme } from './theme.js';
 
 const widgetModules = {
   warp2d: () => import('./widgets/warp2d.js'),
+  p3p: () => import('./widgets/p3p.js'),
+  pnpnoise: () => import('./widgets/pnpnoise.js'),
   homog: () => import('./widgets/homog.js'),
   imgops: () => import('./widgets/imgops.js'),
   shear3d: () => import('./widgets/shear3d.js'),
@@ -22,6 +24,24 @@ const widgetModules = {
   rigid3d: () => import('./widgets/rigid3d.js'),
   pinhole2d: () => import('./widgets/pinhole2d.js'),
   lens2d: () => import('./widgets/lens2d.js'),
+  calib: () => import('./widgets/calib.js'),
+  lagrange: () => import('./widgets/lagrange.js'),
+  ransac: () => import('./widgets/ransac.js'),
+  pnp: () => import('./widgets/pnp.js'),
+  stereo2d: () => import('./widgets/stereo2d.js'),
+  stereomatch: () => import('./widgets/stereomatch.js'),
+  earthfield: () => import('./widgets/earthfield.js'),
+  magsphere: () => import('./widgets/magsphere.js'),
+  headingerr: () => import('./widgets/headingerr.js'),
+  orientcheck: () => import('./widgets/orientcheck.js'),
+  magekf: () => import('./widgets/magekf.js'),
+  magplane: () => import('./widgets/magplane.js'),
+  softiron2d: () => import('./widgets/softiron2d.js'),
+  extrinsics3d: () => import('./widgets/extrinsics3d.js'),
+  projsteps: () => import('./widgets/projsteps.js'),
+  stereo3d: () => import('./widgets/stereo3d.js'),
+  shutter: () => import('./widgets/shutter.js'),
+  eyes2d: () => import('./widgets/eyes2d.js'),
 };
 
 function renderMath(root) {
@@ -130,5 +150,17 @@ function mountAround() {
 deck.on('ready', mountAround);
 deck.on('slidechanged', mountAround);
 mountAround();
+
+// Chrome lays out SVG text at the size the figure had at that moment and may keep it when the figure is
+// rescaled (reveal resizes the slides, a widget next to it mounts, fonts load): the labels drift away from their
+// lines. Toggling an inherited text property forces a fresh text layout.
+function relayoutSvgText(svgs) {
+  svgs.forEach(s => { s.style.textRendering = 'geometricPrecision'; });
+  requestAnimationFrame(() => svgs.forEach(s => { s.style.textRendering = ''; }));
+}
+const svgResize = new ResizeObserver(entries => relayoutSvgText(entries.map(e => e.target)));
+document.querySelectorAll('.reveal .slides svg').forEach(s => svgResize.observe(s));
+deck.on('resize', () => relayoutSvgText(document.querySelectorAll('.reveal .slides section.present svg')));
+document.fonts.ready.then(() => relayoutSvgText(document.querySelectorAll('.reveal .slides svg')));
 
 window.deck = deck;
