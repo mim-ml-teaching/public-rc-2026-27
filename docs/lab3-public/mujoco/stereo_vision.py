@@ -12,8 +12,8 @@ box2_size = 0.02
 
 resolution = (1280, 1280)
 
-img1 = cv2.imread('left.png')
-img2 = cv2.imread('right.png')
+img1 = cv2.imread('assets/left.png')
+img2 = cv2.imread('assets/right.png')
 
 #TODO: find the positions of the objects and reconstruct the images
 

@@ -1,0 +1,10 @@
+[project]
+name = "lab3-public-cv"
+version = "0.1.0"
+description = "Lab 3: OpenCV poses and stereo notebook"
+requires-python = ">=3.11"
+dependencies = [
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "opencv-python>=5.0.0",
+]

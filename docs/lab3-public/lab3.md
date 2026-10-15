@@ -2,18 +2,7 @@ Today's lab consists of two parts: Colab and the MuJoCo simulator.
 
 # Colab
 
-Access the Colab notebook: [lab3-colab](https://colab.research.google.com/github/mim-ml-teaching/public-rc-2025-26/blob/refs/heads/main/docs/lab3-public/lab3-colab-student.ipynb). Additional resources are:
-
-- [0.png](0.png)
-- [1.png](1.png)
-- [2.png](2.png)
-- [3_left.png](3_left.png)
-- [3_right.png](3_right.png)
-
-
-Download them from [here](https://github.com/mim-ml-teaching/public-rc-2025-26/tree/main/docs/lab3-public) and upload them to your
-Colab session.
-
+Access the Colab notebook: [lab3-colab](https://colab.research.google.com/github/mim-ml-teaching/public-rc-2026-27/blob/refs/heads/main/docs/lab3-public/cv_notebook/lab3-colab-student.ipynb).
 
 
 # MuJoCo
@@ -55,11 +44,11 @@ For this part, you'll be working with the following MuJoCo XML world:
 This XML code defines a simple scene with a plane, a box, a sphere, a cylinder, and two cameras. Familiarize yourself with the XML structure and understand the role of each element.
 
 ## Visualizing the Scene
-An environment managed by `uv` is already defined in the `pyproject.toml` file.
+An environment managed by `uv` is already defined in the `mujoco/pyproject.toml` file.
 
 Open the MuJoCo simulator to view the scene. Pay attention to the XML structure and how each element contributes to the visual scene. Also, note that two cameras ("camera1" and "camera2") are specified in the XML.
 
-![](mujoco_camera_selection.png)
+![](assets/mujoco_camera_selection.png)
 
 The image above demonstrates how you can select the desired camera view within the simulator.
 
@@ -101,7 +90,7 @@ Remember that OpenCV uses BGR by default, not RGB.
 
 ### 4. Stereo matching
 Your task is to implement your own depth detection using stereo matching.
-Assuming you've downloaded the repo from GitHub, you can find three files in the `mujoco/` directory: `stereo_vision.py`, `left.png`, and `right.png`.
+Assuming you've downloaded the repo from GitHub, you can find the script `stereo_vision.py` in the `mujoco/` directory, and two images, `left.png` and `right.png`, in `mujoco/assets/`.
 The script `stereo_vision.py` was used to generate the views from two cameras (`left.png`, `right.png`) of a world with two boxes and one sphere.
 Sadly, the information about the positions of the objects was lost.
 
@@ -119,7 +108,7 @@ Tips:
  - If you need a refresher about stereo vision, you can find it below.
  - You can use basic trigonometry to find a relation between the focal length `f` and the field-of-view parameter `fovy`: `f * tan(fovy / 2) = image_height / 2`.
 
-![](left_right.png)
+![](assets/left_right.png)
 
 ## Stereo Vision Refresher
 
@@ -134,7 +123,7 @@ because it can provide information about the depth of the scene.
 
 ### Depth calculation
 
-<iframe id="stereo-depth" src="stereo-depth-cameras.html" title="Interactive stereo depth geometry and live camera images" width="100%" height="1150" style="display: block; width: 100%; border: 0; border-radius: 12px;"></iframe>
+<iframe id="stereo-depth" src="assets/stereo-depth-cameras.html" title="Interactive stereo depth geometry and live camera images" width="100%" height="1150" style="display: block; width: 100%; border: 0; border-radius: 12px;"></iframe>
 
 <script>
 (() => {
@@ -150,7 +139,7 @@ because it can provide information about the depth of the scene.
 })();
 </script>
 
-[Open the interactive diagram separately](stereo-depth-cameras.html). You can also save that HTML file and open it offline in a browser.
+[Open the interactive diagram separately](assets/stereo-depth-cameras.html). You can also save that HTML file and open it offline in a browser.
 
 Quick explanation:
 
