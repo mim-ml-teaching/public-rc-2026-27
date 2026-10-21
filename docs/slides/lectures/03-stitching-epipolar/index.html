@@ -1,0 +1,1831 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lecture 3: Homographies, Image Stitching &amp; Two-View Geometry</title>
+  <link rel="stylesheet" href="../../vendor/reveal/reset.css">
+  <link rel="stylesheet" href="../../vendor/reveal/reveal.css">
+  <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="../../shared/deck.css">
+  <script src="../../vendor/katex/katex.min.js"></script>
+  <script src="../../vendor/katex/contrib/auto-render.min.js"></script>
+  <script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js" } }</script>
+  <style>
+    .flow { display:flex; align-items:center; justify-content:center; gap:0.4em; flex-wrap:nowrap; }
+    .flow .step { border:2px solid var(--line); border-radius:8px; padding:0.35em 0.6em; background:var(--bg-2); text-align:center; line-height:1.25; }
+    .flow .step.key { border-color:var(--accent); }
+    .flow .arr { color:var(--fg-dim); font-size:1.3em; }
+  </style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- ============================================================ -->
+<section class="title-slide">
+  <h1>Lecture 3<br>Homographies, image stitching &amp; two-view geometry</h1>
+  <p class="subtitle">Robot Control · University of Warsaw</p>
+  <p class="small" style="margin-top:1.2em">The content layout is greatly inspired by S. Nayar's <a href="https://fpcv.cs.columbia.edu/">First Principles of Computer Vision</a>.</p>
+  <p class="small interactive-only" style="margin-top:0.6em"><a href="../../pdf/03-stitching-epipolar.pdf">PDF version</a> (light, for printing)</p>
+</section>
+
+<section>
+  <h2>Three tools we already have</h2>
+  <div class="cols" style="font-size:0.86em; grid-template-columns: 1fr 1.3fr 1fr">
+    <div class="box">
+      <h3>Homography (lecture 1)</h3>
+      <p style="margin:0; font-size:0.85em">$$\begin{bmatrix}\tilde u'\\ \tilde v'\\ \tilde w'\end{bmatrix} = \underbrace{\begin{bmatrix} h_{11} & h_{12} & h_{13}\\ h_{21} & h_{22} & h_{23}\\ \textcolor{#b28dff}{h_{31}} & \textcolor{#b28dff}{h_{32}} & h_{33}\end{bmatrix}}_{H}\begin{bmatrix}u\\ v\\ 1\end{bmatrix}$$</p>
+      <p style="margin:0">the projective transformation: lines stay lines, parallelism is lost; defined up to scale → <b>8 DoF</b></p>
+    </div>
+    <div class="box">
+      <h3>DLT (lecture 2)</h3>
+      <p style="margin:0.2em 0"><b>Direct Linear Transform</b>: fit a matrix defined up to scale (e.g. the camera matrix $P$) to correspondences $\tilde{\mathbf u} \equiv P\tilde{\mathbf X}$. Multiplying out the denominators gives equations <b>linear</b> in its entries $\mathbf p$; stacked:</p>
+      <p style="margin:0">$$A\mathbf p = \mathbf 0:\quad \min \|A\mathbf p\| \ \text{s.t.}\ \|\mathbf p\| = 1$$</p>
+      <p style="margin:0">→ eigenvector of the <b>smallest</b> eigenvalue of $A^\top A$</p>
+    </div>
+    <div class="box">
+      <h3>RANSAC (lecture 2)</h3>
+      <p style="margin:0.2em 0">wrong correspondences are normal: fit the model to <b>minimal</b> random samples, keep the one with the most inliers, refit</p>
+      <p style="margin:0">$$N \ge \frac{\log(1 - p)}{\log(1 - w^s)}$$</p>
+    </div>
+  </div>
+  <div class="takeaway" style="font-size:0.8em; margin-top:0.8em">Today all three come together, three times: for a homography, for the fundamental matrix, and for the pose between two frames.</div>
+</section>
+
+<section>
+  <h2>Maps from a drone</h2>
+  <div data-widget="dronemap" data-config='{"width":720,"photoWidth":340}'></div>
+  <p style="font-size:0.66em; margin-top:0.3em">A drone flies back and forth 150 m above a village and takes a photo every few seconds. Each photo is put onto the map by <b>one homography</b>, and the map grows as the drone flies. Part 1: why one homography is enough, how to estimate it, how to hide the seams.</p>
+  <p class="credit">orthophoto: DOP20, Bayerische Vermessungsverwaltung, <a href="https://geodaten.bayern.de/opengeodata/">geodaten.bayern.de</a> (CC BY 4.0)</p>
+</section>
+
+<section>
+  <h2>The camera as a motion sensor</h2>
+  <div data-widget="vomotion" data-config='{"width":500,"topWidth":340}'></div>
+  <p style="font-size:0.66em; margin-top:0.3em">Points tracked from frame to frame slide across the image: near points sweep long tracks, the far wall hardly moves. From these motions alone the camera's rotation and direction of travel can be computed (Part 3); chained over time they give its trajectory: visual odometry (Part 4). Small errors add up, so the chained path slowly drifts.</p>
+</section>
+
+<section>
+  <h2>Today</h2>
+  <div class="cols">
+    <div>
+      <ol>
+        <li><b>Image stitching</b>: when are two images related by a homography; estimating, warping, blending</li>
+        <li><b>Features</b>: where the correspondences come from: detect, describe, match: classic and learned</li>
+        <li><b>Two-view geometry</b>: a general camera pair; epipolar constraint, $E$, $F$, relative pose, the missing scale</li>
+        <li><b>Visual odometry</b>: chaining two-view geometry over time, and why it drifts</li>
+      </ol>
+    </div>
+    <div class="box">
+      <h3>For a robot</h3>
+      <ul style="font-size:0.85em">
+        <li>maps from a drone (mosaics), a bird's-eye view of the floor</li>
+        <li>recognising a place or an object from its features</li>
+        <li>the camera as a motion sensor: how did I move between two frames?</li>
+      </ul>
+      <p class="small" style="margin:0.4em 0 0">Next lecture (Oct 28): 3D reconstruction (COLMAP, NeRF, Gaussian splatting) and SLAM.</p>
+    </div>
+  </div>
+  <p class="small" style="margin-top:0.8em; font-size:0.75em">Further reading: Szeliski, <a href="https://szeliski.org/Book/">Computer Vision: Algorithms and Applications</a> (2nd ed.), ch. 7 (features), 8 (alignment and stitching), 11 (two views, SfM);
+    Hartley &amp; Zisserman, <i>Multiple View Geometry</i>, ch. 4 (homography), 9 to 11 (epipolar geometry, $F$); <a href="https://fpcv.cs.columbia.edu/">First Principles of Computer Vision</a> (S. Nayar).</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 1</div>
+  <h1>Image stitching</h1>
+  <p class="subtitle" style="color:var(--fg-dim)">several photos → one wide image</p>
+</section>
+
+<section>
+  <h2>Image stitching: the goal</h2>
+  <div data-widget="stitch" data-config='{"step":"blend","blend":"feather","steps":[]}'></div>
+  <div class="cols" style="font-size:0.75em; margin-top:0.4em">
+    <p style="margin:0"><b>Geometry</b>: warp the images so that corresponding points align: which transformation?</p>
+    <p style="margin:0"><b>Photometry</b>: blend them so that the borders are invisible (exposure, vignetting).</p>
+  </div>
+  <p class="credit">panorama: “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section>
+  <h2>Homography: definition</h2>
+  <div class="cols" style="grid-template-columns: 1.25fr 1fr; font-size:0.8em">
+    <div>
+      <p style="margin-bottom:0">A <b>homography</b> (projective transformation) is an invertible $3\times3$ matrix $H$ acting on homogeneous coordinates:</p>
+      <div class="box key" style="display:table; margin:0.3em auto">$$\begin{bmatrix}\tilde u'\\ \tilde v'\\ \tilde w'\end{bmatrix} = \begin{bmatrix} h_{11} & h_{12} & h_{13}\\ h_{21} & h_{22} & h_{23}\\ h_{31} & h_{32} & h_{33}\end{bmatrix}\begin{bmatrix}u\\ v\\ 1\end{bmatrix}, \qquad \det H \ne 0$$</div>
+      <p style="margin-bottom:0">Back to pixels: divide by $\tilde w'$:</p>
+      <p>$$\begin{aligned} u' &= \frac{\tilde u'}{\tilde w'} = \frac{h_{11}u + h_{12}v + h_{13}}{h_{31}u + h_{32}v + h_{33}}\\ v' &= \frac{\tilde v'}{\tilde w'} = \frac{h_{21}u + h_{22}v + h_{23}}{h_{31}u + h_{32}v + h_{33}}\end{aligned}$$</p>
+      <ul>
+        <li>$H$ and $kH$ ($k \ne 0$) give the same map: <b>8 DoF</b></li>
+        <li>straight lines stay straight; conversely, every invertible map of the (projective) plane that keeps lines straight is a homography (sketch: optional slide)</li>
+        <li>closed under composition ($H_2H_1$) and inverse ($H^{-1}$); $h_{31} = h_{32} = 0$: affine (lecture 1 hierarchy)</li>
+      </ul>
+    </div>
+    <div class="center">
+      <svg viewBox="0 0 360 300" style="width:100%; max-width:380px; display:block; margin:auto; font-family:Inter, Arial, sans-serif">
+        <line x1="20" y1="250" x2="340" y2="250" stroke="#5ab0ff" stroke-width="3"/>
+        <text x="312" y="276" fill="#5ab0ff" font-size="20" font-style="italic">Π<tspan baseline-shift="sub" font-size="0.7em">1</tspan></text>
+        <line x1="20" y1="215" x2="340" y2="95" stroke="#5fd38d" stroke-width="3"/>
+        <text x="312" y="92" fill="#5fd38d" font-size="20" font-style="italic">Π<tspan baseline-shift="sub" font-size="0.7em">2</tspan></text>
+        <circle cx="150" cy="30" r="6" fill="#e7e9ee"/><text x="162" y="28" fill="#e7e9ee" font-size="18" font-style="italic">O</text>
+        <line x1="150" y1="30" x2="40" y2="250" stroke="#9aa1ae" stroke-width="1.2"/>
+        <line x1="150" y1="30" x2="100" y2="250" stroke="#9aa1ae" stroke-width="1.2"/>
+        <line x1="150" y1="30" x2="160" y2="250" stroke="#9aa1ae" stroke-width="1.2"/>
+        <line x1="150" y1="30" x2="220" y2="250" stroke="#9aa1ae" stroke-width="1.2"/>
+        <line x1="150" y1="30" x2="280" y2="250" stroke="#9aa1ae" stroke-width="1.2"/>
+        <line x1="40" y1="250" x2="100" y2="250" stroke="#f2b134" stroke-width="7"/>
+        <line x1="66.2" y1="197.7" x2="116.1" y2="178.9" stroke="#f2b134" stroke-width="7"/>
+        <line x1="100" y1="250" x2="160" y2="250" stroke="#b28dff" stroke-width="7"/>
+        <line x1="116.1" y1="178.9" x2="156.1" y2="164.0" stroke="#b28dff" stroke-width="7"/>
+        <line x1="160" y1="250" x2="220" y2="250" stroke="#f2b134" stroke-width="7"/>
+        <line x1="156.1" y1="164.0" x2="188.7" y2="151.7" stroke="#f2b134" stroke-width="7"/>
+        <line x1="220" y1="250" x2="280" y2="250" stroke="#b28dff" stroke-width="7"/>
+        <line x1="188.7" y1="151.7" x2="215.9" y2="141.5" stroke="#b28dff" stroke-width="7"/>
+        <circle cx="40" cy="250" r="5" fill="#e7e9ee"/>
+        <circle cx="100" cy="250" r="5" fill="#e7e9ee"/>
+        <circle cx="160" cy="250" r="5" fill="#e7e9ee"/>
+        <circle cx="220" cy="250" r="5" fill="#e7e9ee"/>
+        <circle cx="280" cy="250" r="5" fill="#e7e9ee"/>
+        <circle cx="66.2" cy="197.7" r="5" fill="#e7e9ee"/>
+        <circle cx="116.1" cy="178.9" r="5" fill="#e7e9ee"/>
+        <circle cx="156.1" cy="164.0" r="5" fill="#e7e9ee"/>
+        <circle cx="188.7" cy="151.7" r="5" fill="#e7e9ee"/>
+        <circle cx="215.9" cy="141.5" r="5" fill="#e7e9ee"/>
+        <text x="40" y="280" fill="#e7e9ee" font-size="15">equal steps on Π₁</text>
+        <text x="196" y="182" fill="#e7e9ee" font-size="15">shrinking steps on Π₂</text>
+        </svg>
+      <p style="margin:0.2em 0 0; font-size:0.9em">Geometric meaning: project one plane onto another through a point $O$ (a central projection). Equal steps on $\Pi_1$ become shrinking steps on $\Pi_2$ (distances and ratios of lengths are not kept), but collinear points stay collinear. Why this is a homography: next (optional) slide.</p>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>Central projection is a homography: a sketch <span class="optional-badge">optional</span></h2>
+  <div class="cols" style="font-size:0.64em; gap:1.2em; grid-template-columns: 1.25fr 1fr">
+    <div>
+      <h3>1. Plane → plane through $O$ is a homography</h3>
+      <p style="margin:0"><b>Setting</b>: points are vectors in $\mathbb R^3$, the centre $O = \mathbf 0$; $\Pi_1, \Pi_2 \subset \mathbb R^3$ are planes not through $O$.</p>
+      <p style="margin:0.25em 0 0"><b>Coordinates on $\Pi_1$</b>, chosen freely: a point $\mathbf a_1 \in \Pi_1$ (origin) and independent $\mathbf b_1, \mathbf c_1 \in \mathbb R^3$ parallel to $\Pi_1$ (axes). They define the map</p>
+      <p style="margin:0">$$\varphi_1:\ \mathbb R^2 \to \Pi_1,\quad (s, t) \mapsto \mathbf X = \mathbf a_1 + s\,\mathbf b_1 + t\,\mathbf c_1 = \underbrace{[\,\mathbf b_1\ \mathbf c_1\ \mathbf a_1\,]}_{M_1 \in \mathbb R^{3\times3}}\begin{bmatrix}s\\ t\\ 1\end{bmatrix}$$</p>
+      <p style="margin:0">a bijection: every point $\mathbf X \in \Pi_1$ (a vector in $\mathbb R^3$) has exactly one pair $(s, t) \in \mathbb R^2$, its 2D coordinates (on an image plane: the pixel). $M_1$ is invertible: otherwise $\mathbf a_1 \in \operatorname{span}(\mathbf b_1, \mathbf c_1)$ and $O \in \Pi_1$. Likewise $\varphi_2$, $M_2$, $(s', t')$ on $\Pi_2$.</p>
+      <p style="margin:0.25em 0 0"><b>The projection</b> $\pi: \Pi_1 \to \Pi_2$ sends $\mathbf X$ to where the line $\{\lambda\mathbf X : \lambda \in \mathbb R\}$ through $O$ meets $\Pi_2$: $\pi(\mathbf X) = \lambda\mathbf X$ for one number $\lambda$ (depending on $\mathbf X$).</p>
+      <p style="margin:0.25em 0 0"><b>Claim</b>: in coordinates, $(s, t) \mapsto (s', t') = \varphi_2^{-1}\big(\pi(\varphi_1(s, t))\big)$ is a homography:</p>
+      <p style="margin:0">$$M_2\begin{bmatrix}s'\\ t'\\ 1\end{bmatrix} = \lambda M_1\begin{bmatrix}s\\ t\\ 1\end{bmatrix} \;\Rightarrow\; \begin{bmatrix}s'\\ t'\\ 1\end{bmatrix} \equiv \underbrace{M_2^{-1}M_1}_{H}\begin{bmatrix}s\\ t\\ 1\end{bmatrix}$$</p>
+      <p class="small" style="margin:0">$\lambda$ is the scale that homogeneous coordinates ignore. Other $\mathbf a, \mathbf b, \mathbf c$: $H$ times invertible matrices, still a homography. Rays parallel to $\Pi_2$: $\tilde w' = 0$, the horizon.</p>
+    </div>
+    <div>
+      <h3>2. Lines stay lines</h3>
+      <p style="margin:0">Geometry: a line of $\Pi_1$ and $O$ span a plane, which meets $\Pi_2$ in a line. Algebra: if $\mathbf l^\top\tilde{\mathbf u} = 0$, then $(H^{-\top}\mathbf l)^\top (H\tilde{\mathbf u}) = \mathbf l^\top\tilde{\mathbf u} = 0$: the image points lie on the line $H^{-\top}\mathbf l$.</p>
+      <h3 style="margin-top:0.5em">3. Conversely: keeps lines ⇒ homography</h3>
+      <ul style="margin-top:0.2em">
+        <li>4 points, no 3 collinear, and their 4 images determine a unique $H$ (8 equations, 8 DoF: the DLT)</li>
+        <li>let $f$ be a bijection that keeps lines, and $H$ agree with $f$ on 4 such points; then $g = H^{-1}\circ f$ keeps lines and fixes the 4 points</li>
+        <li>lines through fixed points and their intersections stay fixed; repeating this, $g$ acts on each line like an automorphism of the field $\mathbb R$, and the only one is the identity: $g = \mathrm{id}$, so $f = H$</li>
+      </ul>
+      <p class="small" style="margin:0.3em 0 0">Hartley &amp; Zisserman, sec. 2.3 (projective transformations, Theorem 2.10); 3 is the fundamental theorem of projective geometry.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>When are two images related by a homography?</h2>
+  <div class="cols c-3" style="font-size:0.72em; gap:0.8em">
+    <div class="center">
+      <svg viewBox="0 0 300 220" style="width:100%; max-width:330px; display:block; margin:auto; font-family:Inter, Arial, sans-serif">
+        <line x1="10" y1="186" x2="290" y2="143" stroke="#b28dff" stroke-width="4"/>
+        <text x="258" y="132" fill="#b28dff" font-size="20" font-style="italic">Π</text>
+        <line x1="80" y1="40" x2="40" y2="66" stroke="#9aa1ae" stroke-width="1"/><line x1="80" y1="40" x2="120" y2="66" stroke="#9aa1ae" stroke-width="1"/>
+        <line x1="220" y1="40" x2="180" y2="66" stroke="#9aa1ae" stroke-width="1"/><line x1="220" y1="40" x2="260" y2="66" stroke="#9aa1ae" stroke-width="1"/>
+        <line x1="40" y1="66" x2="120" y2="66" stroke="#5ab0ff" stroke-width="4"/>
+        <line x1="180" y1="66" x2="260" y2="66" stroke="#5fd38d" stroke-width="4"/>
+        <line x1="80" y1="40" x2="140" y2="166" stroke="#f2b134" stroke-width="2"/>
+        <line x1="220" y1="40" x2="140" y2="166" stroke="#f2b134" stroke-width="2"/>
+        <line x1="80" y1="40" x2="226" y2="153" stroke="#f2b134" stroke-width="1.2" stroke-dasharray="4 4"/>
+        <line x1="220" y1="40" x2="226" y2="153" stroke="#f2b134" stroke-width="1.2" stroke-dasharray="4 4"/>
+        <circle cx="140" cy="166" r="6" fill="#ff6b6b"/><circle cx="226" cy="153" r="5" fill="#ff6b6b"/>
+        <circle cx="92.4" cy="66" r="4.5" fill="#f2b134"/><circle cx="203.5" cy="66" r="4.5" fill="#f2b134"/>
+        <circle cx="80" cy="40" r="5" fill="#e7e9ee"/><circle cx="220" cy="40" r="5" fill="#e7e9ee"/>
+        <text x="58" y="28" fill="#e7e9ee" font-size="16">camera 1</text><text x="196" y="28" fill="#e7e9ee" font-size="16">camera 2</text>
+      </svg>
+      <h3 style="margin:0.2em 0">1. Planar scene</h3>
+      <p style="margin:0">any camera motion</p>
+      <p style="margin:0">plane → image 1 is a homography $H_1$, plane → image 2 is $H_2$, so image 1 → image 2 is $H_2 H_1^{-1}$</p>
+    </div>
+    <div class="center">
+      <svg viewBox="0 0 300 220" style="width:100%; max-width:330px; display:block; margin:auto; font-family:Inter, Arial, sans-serif">
+        <line x1="110" y1="72" x2="190" y2="72" stroke="#5ab0ff" stroke-width="4"/>
+        <line x1="126.4" y1="89.1" x2="195.6" y2="49.1" stroke="#5fd38d" stroke-width="4"/>
+        <line x1="150" y1="50" x2="85" y2="215" stroke="#f2b134" stroke-width="2"/>
+        <line x1="150" y1="50" x2="255" y2="190" stroke="#f2b134" stroke-width="2"/>
+        <circle cx="122" cy="121" r="6" fill="#ff6b6b"/><circle cx="96" cy="187" r="6" fill="#ff6b6b"/>
+        <circle cx="198" cy="114" r="6" fill="#ff6b6b"/><circle cx="240" cy="170" r="6" fill="#ff6b6b"/>
+        <circle cx="141.3" cy="72" r="4.5" fill="#15171c" stroke="#e7e9ee" stroke-width="2.2"/><circle cx="166.5" cy="72" r="4.5" fill="#15171c" stroke="#e7e9ee" stroke-width="2.2"/>
+        <circle cx="137.0" cy="83.0" r="4.5" fill="#15171c" stroke="#e7e9ee" stroke-width="2.2"/><circle cx="163.3" cy="67.8" r="4.5" fill="#15171c" stroke="#e7e9ee" stroke-width="2.2"/>
+        <text x="20" y="150" fill="#ff6b6b" font-size="14">scene points</text><text x="20" y="166" fill="#ff6b6b" font-size="14">at two depths</text>
+        <circle cx="150" cy="50" r="5" fill="#e7e9ee"/>
+        <text x="110" y="30" fill="#e7e9ee" font-size="16">one centre</text>
+        <text x="200" y="100" fill="#5fd38d" font-size="15">turned</text>
+      </svg>
+      <h3 style="margin:0.2em 0">2. Pure rotation</h3>
+      <p style="margin:0">any scene, the camera only turns about its centre</p>
+      <p style="margin:0">the rays do not change, only the image plane does: both red points on a ray land on one pixel (white), in either image</p>
+    </div>
+    <div class="center">
+      <svg viewBox="0 0 300 220" style="width:100%; max-width:330px; display:block; margin:auto; font-family:Inter, Arial, sans-serif">
+        <polyline points="10,52 50,26 80,44 120,14 160,40 200,20 240,46 290,24" fill="none" stroke="#9aa1ae" stroke-width="3"/>
+        <circle cx="150" cy="34" r="6" fill="#ff6b6b"/>
+        <line x1="135" y1="200" x2="150" y2="34" stroke="#f2b134" stroke-width="2"/>
+        <line x1="165" y1="200" x2="150" y2="34" stroke="#f2b134" stroke-width="2"/>
+        <line x1="105" y1="178" x2="165" y2="178" stroke="#5ab0ff" stroke-width="4"/>
+        <line x1="135" y1="184" x2="195" y2="184" stroke="#5fd38d" stroke-width="4"/>
+        <circle cx="135" cy="200" r="5" fill="#e7e9ee"/><circle cx="165" cy="200" r="5" fill="#e7e9ee"/>
+        <text x="40" y="214" fill="#e7e9ee" font-size="15">small baseline</text>
+        <text x="196" y="80" fill="#9aa1ae" font-size="15">far away</text>
+      </svg>
+      <h3 style="margin:0.2em 0">3. Distant scene</h3>
+      <p style="margin:0">baseline ≪ depth</p>
+      <p style="margin:0">translation hardly matters: almost a pure rotation (aerial and landscape photos)</p>
+    </div>
+  </div>
+  <div class="takeaway" style="font-size:0.75em; margin-top:0.5em">Otherwise (a 3D scene and a moving camera) there is <b>no</b> homography: points at different depths shift differently (parallax). That case is Part 3.</div>
+</section>
+
+<section>
+  <h2>Why: the formulas</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <h3>Pure rotation</h3>
+      <p style="margin:0">Camera 1: $\tilde{\mathbf u}_1 \equiv K\mathbf x$. Camera 2 has the same centre, rotated: $\tilde{\mathbf u}_2 \equiv K R\,\mathbf x$.</p>
+      <p>$$\mathbf x \equiv K^{-1}\tilde{\mathbf u}_1 \;\Rightarrow\; \tilde{\mathbf u}_2 \equiv \underbrace{K R K^{-1}}_{H}\,\tilde{\mathbf u}_1$$</p>
+      <p style="margin:0">The depth of $\mathbf x$ cancels: one $H$ for every pixel.</p>
+    </div>
+    <div>
+      <h3>Planar scene</h3>
+      <p style="margin:0">World frame on the plane, so $z_w = 0$ (lecture 2, the planar DLT degeneracy):</p>
+      <p>$$\tilde{\mathbf u} \equiv K\,[\,\mathbf r_1\ \mathbf r_2\ \mathbf r_3\ \mathbf t\,]\begin{bmatrix}x_w\\ y_w\\ 0\\ 1\end{bmatrix} = \underbrace{K\,[\,\mathbf r_1\ \mathbf r_2\ \mathbf t\,]}_{3\times3\ \text{homography}}\begin{bmatrix}x_w\\ y_w\\ 1\end{bmatrix}$$</p>
+      <p style="margin:0">Image 1 → image 2: $H_2 H_1^{-1}$. Zhang's calibration uses exactly these $H_i$.</p>
+    </div>
+  </div>
+  <div class="box" style="font-size:0.75em; margin-top:0.6em">General form (plane $\mathbf n^\top \mathbf x_1 = d$ in camera 1, camera 2 at $\mathbf x_2 = R\mathbf x_1 + \mathbf t$): $\;\mathbf x_2 = \big(R + \mathbf t\,\mathbf n^\top/d\big)\,\mathbf x_1$, so $H = K\big(R + \mathbf t\,\mathbf n^\top/d\big)K^{-1}$. For $d \to \infty$ (a distant plane) it becomes $KRK^{-1}$.</div>
+</section>
+
+<section class="optional">
+  <h2>Distant scene: how far is far enough? <span class="optional-badge">optional</span></h2>
+  <div class="cols" style="font-size:0.78em; grid-template-columns: 1.15fr 1fr; gap:1.2em">
+    <div>
+      <h3>Intuition</h3>
+      <p style="margin:0">From a train window the posts by the track rush past, the trees behind them move slowly, and the mountains on the horizon hardly move (the Moon seems to travel with the train). When the camera <b>moves</b>, the image shift shrinks with the depth; when it <b>turns</b>, everything shifts alike.</p>
+      <h3 style="margin-top:0.5em">Formula</h3>
+      <p style="margin:0">A point at depth $Z$ in camera 1: $\mathbf x_1 = Z\,K^{-1}\tilde{\mathbf u}_1$; in camera 2: $\mathbf x_2 = R\mathbf x_1 + \mathbf t$. So</p>
+      <div class="box key" style="display:table; margin:0.2em auto">$$\tilde{\mathbf u}_2 \equiv K\mathbf x_2 = Z\,KRK^{-1}\tilde{\mathbf u}_1 + K\mathbf t \;\equiv\; \underbrace{KRK^{-1}}_{\text{rotation } H}\,\tilde{\mathbf u}_1 + \frac{1}{Z}\,K\mathbf t$$</div>
+      <p style="margin:0">The translation enters only through $\mathbf t/Z$. Using $H = KRK^{-1}$ anyway leaves an error (parallax) of about $\;f\,b/Z\;$ pixels for a sideways baseline $b$: the disparity of lecture 2.</p>
+    </div>
+    <div>
+      <div class="box">
+        <h3>Rule of thumb</h3>
+        <p style="margin:0">Scene from $Z_{\min}$ to $\infty$: one $H$ is good when $\;f\,b / Z_{\min} \lesssim 1$ px (or the matching tolerance). A plane at depth $d$ instead, $H = K(R + \mathbf t\mathbf n^\top/d)K^{-1}$, leaves $\;f\,b\,\lvert 1/Z - 1/d\rvert$.</p>
+      </div>
+      <div class="box" style="margin-top:0.5em">
+        <h3>Examples</h3>
+        <ul style="margin:0 0 0 1.1em">
+          <li>hand-held panorama with a phone: $f \approx 3000$ px, the lens moves $b \approx 2$ cm between shots: a building 60 m away 1 px, 20 m away 3 px, a person 2 m away <b>30 px</b> (ghosting)</li>
+          <li>drone at $A = 100$ m, $f = 3650$ px, photos $b = 20$ m apart: the ground and the top of a 10 m tree differ by $3650 \cdot 20 \cdot (\tfrac{1}{90} - \tfrac{1}{100}) \approx 80$ px: not distant; the ground is a <b>plane</b> (case 1), trees and roofs break it (later)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Pure rotation: the homography is exact</h2>
+  <div style="font-size:1.2em"><div data-widget="parallax" data-config='{"motion":"rotate","amount":12,"motions":["rotate"],"width":370}'></div></div>
+</section>
+
+<section>
+  <h2>Translation: parallax</h2>
+  <div style="font-size:1.2em"><div data-widget="parallax" data-config='{"motion":"wall","amount":0.4,"motions":["wall","ground"],"width":370}'></div></div>
+  <div class="cols c-3" style="font-size:0.66em; margin-top:0.5em; gap:0.8em">
+    <div class="box"><b>wall H</b>: the homography of the back wall, the plane $z = 20$ m in camera 1 ($\mathbf n = (0, 0, 1)$, $d = 20$): $\;H = K\big(R + \mathbf t\,\mathbf n^\top/d\big)K^{-1}$. Exact for the wall; nearer points shift more than it predicts and appear twice.</div>
+    <div class="box"><b>ground H</b>: the same formula for the ground, the plane $y = 1$ m below the camera ($\mathbf n = (0, 1, 0)$, $d = 1$; $y$ points down). Now the ground aligns and the wall, far from that plane, is doubled.</div>
+    <div class="box key">With translation every plane has <b>its own</b> homography: no single $H$ fits a 3D scene. With pure rotation $\mathbf t = \mathbf 0$, the plane drops out and one $H = KRK^{-1}$ fits everything.</div>
+  </div>
+</section>
+
+<section>
+  <h2>Estimating a homography: $H$ is the unknown</h2>
+  <div class="cols" style="grid-template-columns: 1.6fr 1fr; font-size:0.78em; gap:1.2em">
+    <div>
+      <p style="margin:0">So far $H$ was given and we computed where a point goes. Now the <b>points are known</b> (correspondences $(u_i, v_i) \to (u'_i, v'_i)$) and the <b>9 entries of $H$ are the unknowns</b>. As with the projection matrix $P$ in lecture 2, flatten $H$ into one vector:</p>
+      <p style="margin:0.1em 0">$$H = \begin{bmatrix} \textcolor{#ff6b6b}{h_{11}} & \textcolor{#ff6b6b}{h_{12}} & \textcolor{#ff6b6b}{h_{13}}\\ \textcolor{#5fd38d}{h_{21}} & \textcolor{#5fd38d}{h_{22}} & \textcolor{#5fd38d}{h_{23}}\\ \textcolor{#b28dff}{h_{31}} & \textcolor{#b28dff}{h_{32}} & \textcolor{#b28dff}{h_{33}}\end{bmatrix} \;\longrightarrow\; \mathbf h = \begin{bmatrix}\textcolor{#ff6b6b}{h_{11}\ \ h_{12}\ \ h_{13}}\ \ \textcolor{#5fd38d}{h_{21}\ \ h_{22}\ \ h_{23}}\ \ \textcolor{#b28dff}{h_{31}\ \ h_{32}\ \ h_{33}}\end{bmatrix}^\top$$</p>
+      <p style="margin:0">One correspondence, the $u'$ equation; multiply out the denominator and collect the terms:</p>
+      <p style="margin:0">$$\begin{aligned} u' &= \frac{\textcolor{#ff6b6b}{h_{11}}u + \textcolor{#ff6b6b}{h_{12}}v + \textcolor{#ff6b6b}{h_{13}}}{\textcolor{#b28dff}{h_{31}}u + \textcolor{#b28dff}{h_{32}}v + \textcolor{#b28dff}{h_{33}}}\\ 0 &= u\,\textcolor{#ff6b6b}{h_{11}} + v\,\textcolor{#ff6b6b}{h_{12}} + 1\,\textcolor{#ff6b6b}{h_{13}} - u'u\,\textcolor{#b28dff}{h_{31}} - u'v\,\textcolor{#b28dff}{h_{32}} - u'\,\textcolor{#b28dff}{h_{33}}\end{aligned}$$</p>
+      <p style="margin:0">The numbers $u, v, u'$ are now <b>coefficients</b>: one linear equation in $\mathbf h$. With the $v'$ equation, two rows per correspondence:</p>
+      <p style="margin:0; font-size:0.92em">$$\begin{bmatrix} u & v & 1 & 0 & 0 & 0 & -u'u & -u'v & -u'\\ 0 & 0 & 0 & u & v & 1 & -v'u & -v'v & -v'\end{bmatrix}\mathbf h = \mathbf 0$$</p>
+    </div>
+    <div>
+      <div class="box key">
+        <h3>The roles swap</h3>
+        <table style="font-size:0.85em; width:100%">
+          <tr><th></th><th>known</th><th>unknown</th></tr>
+          <tr><td>warping</td><td>$H$, $(u, v)$</td><td>$(u', v')$</td></tr>
+          <tr><td>estimating</td><td>$(u_i, v_i)$, $(u'_i, v'_i)$</td><td>$\mathbf h$ (9 numbers)</td></tr>
+        </table>
+      </div>
+      <div class="box" style="margin-top:0.6em">
+        <h3>Why it is linear</h3>
+        <p style="margin:0">$u'$ is a <b>ratio</b> of two expressions in $H$; cross-multiplying removes the ratio. The price: the equations are homogeneous, so $\mathbf h$ is found only up to scale, exactly as $H$ is defined.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Estimating a homography: solving for $\mathbf h$</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <p style="margin-bottom:0">Stack the two rows of every correspondence:</p>
+      <p style="font-size:0.85em">$$\underbrace{\begin{bmatrix} u_1 & v_1 & 1 & 0 & 0 & 0 & -u'_1u_1 & -u'_1v_1 & -u'_1\\ 0 & 0 & 0 & u_1 & v_1 & 1 & -v'_1u_1 & -v'_1v_1 & -v'_1\\ & & & & \vdots & & & & \\ u_n & v_n & 1 & 0 & 0 & 0 & -u'_nu_n & -u'_nv_n & -u'_n\\ 0 & 0 & 0 & u_n & v_n & 1 & -v'_nu_n & -v'_nv_n & -v'_n\end{bmatrix}}_{A:\ 2n \times 9}\mathbf h = \mathbf 0$$</p>
+      <ul>
+        <li>$\mathbf h = \mathbf 0$ always solves it, and $\mathbf h$ is defined up to scale: $\;\min\|A\mathbf h\|$ s.t. $\|\mathbf h\| = 1$ (lecture 2)</li>
+        <li>solution: the right singular vector of $A$ for the smallest singular value</li>
+        <li>reshape $\mathbf h$ back into $H$: rows of three</li>
+      </ul>
+    </div>
+    <div>
+      <div class="box key">
+        <h3>How many points?</h3>
+        <p style="margin:0">8 DoF, 2 equations per point → <b>4 points</b>, no three of them collinear.</p>
+      </div>
+      <div class="box" style="margin-top:0.6em">
+        <h3>In practice</h3>
+        <ul style="font-size:0.85em; margin:0 0 0 1.1em">
+          <li><b>normalise</b> first: shift the points to their centroid, scale to mean distance $\sqrt2$ (Hartley): pixel values $\sim 10^3$ next to $1$ make $A$ badly conditioned</li>
+          <li>refine by minimising the reprojection error in pixels</li>
+          <li>with wrong matches: RANSAC with $s = 4$</li>
+          <li><code>cv2.findHomography(src, dst, cv2.RANSAC, 3.0)</code></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Exercise: a projective warp by hand</h2>
+  <div data-widget="warp2d" data-config='{"origin":"topleft","width":640,"height":420,"tasks":[{"title":"Change only the third row: keep the top edge, send the bottom corners to the marked points (a floor seen in perspective).","corners":[[0,0],[320,0],[160,120],[0,120]]},{"title":"Now any entry may change. The same floor, centred: send the corners to the marked symmetric trapezoid. Hint: start from task 1.","corners":[[0,0],[320,0],[240,120],[80,120]]},{"title":"Challenge (any entry may change): converging verticals, the top edge shorter and centred.","corners":[[80,0],[240,0],[320,240],[0,240]]}]}'></div>
+</section>
+
+<section>
+  <h2>Matches and RANSAC</h2>
+  <div data-widget="stitch" data-config='{"step":"matches","steps":["images","matches","ransac"]}'></div>
+  <p class="credit">panorama: “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section>
+  <h2>Composing the homographies</h2>
+  <svg viewBox="0 0 1100 390" style="width:100%; max-width:1120px; display:block; margin:0.2em auto 0; font-family:Inter, Arial, sans-serif">
+    <defs><marker id="ahc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+    <text x="0" y="22" fill="#9aa1ae" font-size="17">photos; neighbours overlap, so only their homographies are estimated (matches + RANSAC):</text>
+    <rect x="35" y="40" width="130" height="85" rx="4" fill="#ff6b6b" fill-opacity="0.18" stroke="#ff6b6b" stroke-width="3"/>
+    <text x="100" y="92" fill="#ff6b6b" font-size="30" text-anchor="middle">1</text>
+    <line x1="173" y1="92" x2="242" y2="92" stroke="#e7e9ee" stroke-width="2.5" marker-end="url(#ahc)"/>
+    <text x="207.5" y="70" fill="#e7e9ee" font-size="20" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">1→2</tspan></text>
+    <rect x="250" y="40" width="130" height="85" rx="4" fill="#5fd38d" fill-opacity="0.18" stroke="#5fd38d" stroke-width="3"/>
+    <text x="315" y="92" fill="#5fd38d" font-size="30" text-anchor="middle">2</text>
+    <line x1="388" y1="92" x2="457" y2="92" stroke="#e7e9ee" stroke-width="2.5" marker-end="url(#ahc)"/>
+    <text x="422.5" y="70" fill="#e7e9ee" font-size="20" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">2→3</tspan></text>
+    <rect x="465" y="40" width="130" height="85" rx="4" fill="#5ab0ff" fill-opacity="0.18" stroke="#5ab0ff" stroke-width="3"/>
+    <text x="530" y="92" fill="#5ab0ff" font-size="30" text-anchor="middle">3</text>
+    <line x1="603" y1="92" x2="672" y2="92" stroke="#e7e9ee" stroke-width="2.5" marker-end="url(#ahc)"/>
+    <text x="637.5" y="70" fill="#e7e9ee" font-size="20" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">3→4</tspan></text>
+    <rect x="680" y="40" width="130" height="85" rx="4" fill="#b28dff" fill-opacity="0.18" stroke="#b28dff" stroke-width="3"/>
+    <text x="745" y="92" fill="#b28dff" font-size="30" text-anchor="middle">4</text>
+    <line x1="818" y1="92" x2="887" y2="92" stroke="#e7e9ee" stroke-width="2.5" marker-end="url(#ahc)"/>
+    <text x="852.5" y="70" fill="#e7e9ee" font-size="20" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">4→5</tspan></text>
+    <rect x="895" y="40" width="130" height="85" rx="4" fill="#f2b134" fill-opacity="0.18" stroke="#f2b134" stroke-width="3"/>
+    <text x="960" y="92" fill="#f2b134" font-size="30" text-anchor="middle">5</text>
+    <text x="0" y="165" fill="#9aa1ae" font-size="17">the panorama in the frame of the reference photo 3: compose along the chain (read right to left), invert to go backwards:</text>
+    <polygon points="205,180 365,203 365,312 205,335" fill="#ff6b6b" fill-opacity="0.16" stroke="#ff6b6b" stroke-width="3"/>
+    <polygon points="855,180 695,203 695,312 855,335" fill="#f2b134" fill-opacity="0.16" stroke="#f2b134" stroke-width="3"/>
+    <polygon points="350,200 480,215 480,300 350,315" fill="#5fd38d" fill-opacity="0.16" stroke="#5fd38d" stroke-width="3"/>
+    <polygon points="710,200 580,215 580,300 710,315" fill="#b28dff" fill-opacity="0.16" stroke="#b28dff" stroke-width="3"/>
+    <polygon points="465,215 595,215 595,300 465,300" fill="#5ab0ff" fill-opacity="0.16" stroke="#5ab0ff" stroke-width="3"/>
+    <text x="262" y="266" fill="#ff6b6b" font-size="26" text-anchor="middle">1</text>
+    <text x="410" y="266" fill="#5fd38d" font-size="26" text-anchor="middle">2</text>
+    <text x="530" y="266" fill="#5ab0ff" font-size="26" text-anchor="middle">3</text>
+    <text x="650" y="266" fill="#b28dff" font-size="26" text-anchor="middle">4</text>
+    <text x="798" y="266" fill="#f2b134" font-size="26" text-anchor="middle">5</text>
+    <text x="250" y="368" fill="#ff6b6b" font-size="21" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">2→3</tspan> H<tspan baseline-shift="sub" font-size="0.7em">1→2</tspan></text>
+    <text x="400" y="345" fill="#5fd38d" font-size="21" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">2→3</tspan></text>
+    <text x="530" y="345" fill="#5ab0ff" font-size="21" font-style="italic" text-anchor="middle">I</text>
+    <text x="660" y="345" fill="#b28dff" font-size="21" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">3→4</tspan>⁻¹</text>
+    <text x="810" y="368" fill="#f2b134" font-size="21" font-style="italic" text-anchor="middle">H<tspan baseline-shift="sub" font-size="0.7em">3→4</tspan>⁻¹ H<tspan baseline-shift="sub" font-size="0.7em">4→5</tspan>⁻¹</text>
+    <text x="960" y="250" fill="#9aa1ae" font-size="16">outer photos:</text><text x="960" y="270" fill="#9aa1ae" font-size="16">more stretched</text>
+    </svg>
+  <div class="cols" style="font-size:0.72em; margin-top:0.2em">
+    <p style="margin:0">Homographies compose by matrix products: $H_{1\to3} = H_{2\to3}\,H_{1\to2}$ (first $1 \to 2$, then $2 \to 3$), and $H_{4\to3} = H_{3\to4}^{-1}$. The canvas adds a translation $T$ so that all coordinates are positive: photo $i$ is warped by $T\,H_{i\to3}$.</p>
+    <p style="margin:0">Errors multiply along the chain: the outer photos are the least accurate. Choosing the <b>middle</b> photo as the reference keeps the chains short and the stretching symmetric.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Warping into a common frame</h2>
+  <div class="cols" style="grid-template-columns: 1.2fr 1fr; font-size:0.85em">
+    <div>
+      <ul>
+        <li>pick a <b>reference</b> image (the middle one): the others are warped into its frame</li>
+        <li>compose the pairwise homographies into $H_{i \to \text{ref}}$ (previous slide)</li>
+        <li>size of the result (the canvas): warp the four corners of every image; their bounding box $[x_{\min}, x_{\max}] \times [y_{\min}, y_{\max}]$ is in the reference frame, and $x_{\min}, y_{\min} &lt; 0$ (photos left of / above the reference). Canvas pixels start at $(0, 0)$, so shift by $T = \left[\begin{smallmatrix}1 & 0 & -x_{\min}\\ 0 & 1 & -y_{\min}\\ 0 & 0 & 1\end{smallmatrix}\right]$: photo $i$ is warped by $T H_{i \to \text{ref}}$</li>
+        <li><b>backward</b> warping (lecture 1): for every output pixel, $H^{-1}$ gives the source position; interpolate (bilinear)</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Many images</h3>
+      <ul style="font-size:0.9em; margin:0 0 0 1.1em">
+        <li>chaining accumulates errors: the last image drifts (the same problem as odometry, Part 4)</li>
+        <li>remedy: <b>bundle adjustment</b>: adjust all rotations (and $f$) together so that all matches agree (Brown &amp; Lowe, AutoStitch, 2007)</li>
+        <li>wide panoramas (&gt; ~120°) stretch without bound on one plane: project onto a <b>cylinder</b> or a <b>sphere</b> instead</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Warping onto the reference plane, in 3D</h2>
+  <div data-widget="panoproj" data-config='{"surface":"plane","surfaces":["plane"],"yaw":30,"width":620,"height":330}'></div>
+  <div class="cols c-3" style="font-size:0.66em; margin-top:0.4em; gap:1em">
+    <p style="margin:0">One camera centre, three photos (small frames) taken by turning it. Every pixel of photo $i$ defines a ray; the panorama pixel is where the ray meets the <b>image plane of the reference photo</b>, extended.</p>
+    <p style="margin:0">This is exactly the homography $H = KR_{\text{ref}}R_i^\top K^{-1}$: the same rays, a different plane.</p>
+    <p style="margin:0">Turn the outer photos further: their projections stretch, and at 90° their rays run parallel to the plane and never meet it.</p>
+  </div>
+  <p class="credit">panorama: “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section>
+  <h2>Wide panoramas: plane or cylinder</h2>
+  <div data-widget="stitch" data-config='{"views":5,"step":"warp","projButton":true}'></div>
+  <p class="credit">panorama: “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section class="optional">
+  <h2>Plane or cylinder, in 3D <span class="optional-badge">optional</span></h2>
+  <div data-widget="panoproj" data-config='{"surface":"cylinder","views":5,"yaw":56,"width":620,"height":330}'></div>
+  <div class="cols c-3" style="font-size:0.66em; margin-top:0.4em; gap:1em">
+    <p style="margin:0">Five photos, turned up to ±56°. On the <b>plane</b> the outer ones explode in size; on a <b>cylinder</b> around the camera every direction is equally far away, so all photos keep their size.</p>
+    <p style="margin:0">"unroll" flattens the cylinder into the panorama strip, $u = f\,\theta$: a turn of the camera becomes a horizontal shift.</p>
+    <p style="margin:0">The price: the strip is no longer a pinhole image, so straight horizontal lines bend (next slide).</p>
+  </div>
+  <p class="credit">panorama: “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section class="optional">
+  <h2>Panorama surfaces: the model <span class="optional-badge">optional</span></h2>
+  <p style="font-size:0.8em; margin:0 0 0.3em">Backward warping: panorama pixel $(u, v)$ → a <b>ray</b> $\mathbf d$ in the reference camera frame → its pixel in view $i$: $\;\tilde{\mathbf u}_i \equiv K R_i\,\mathbf d$. The surfaces differ only in pixel → ray:</p>
+  <table style="font-size:0.62em; width:100%">
+    <tr><th></th><th>plane (reference image plane)</th><th>cylinder (radius $f$, vertical axis)</th><th>sphere (equirectangular)</th></tr>
+    <tr><td>coordinates</td><td>$u, v$ on the plane $z = f$</td><td>angle $\theta = (u - o_x)/f$, height $h = (v - o_y)/f$</td><td>$\theta = (u - o_x)/f$, $\varphi = (v - o_y)/f$</td></tr>
+    <tr><td>ray $\mathbf d$</td><td>$(u - o_x,\ v - o_y,\ f) \equiv K^{-1}\tilde{\mathbf u}$</td><td>$(\sin\theta,\ h,\ \cos\theta)$</td><td>$(\cos\varphi\sin\theta,\ \sin\varphi,\ \cos\varphi\cos\theta)$</td></tr>
+    <tr><td>view $i$</td><td>$KR_iK^{-1}\tilde{\mathbf u}$: a <b>homography</b></td><td colspan="2">not a homography; a turn about the vertical axis is a <b>horizontal shift</b> $\Delta u = f\,\Delta\theta$</td></tr>
+    <tr><td>straight lines</td><td>all stay straight (it is a pinhole image)</td><td>vertical ones stay straight; horizontal ones bend (except the horizon)</td><td>only the vertical ones and the horizon</td></tr>
+    <tr><td>field of view</td><td>$&lt; 180°$; the stretch at angle $\alpha$ off-axis is $1/\cos^2\alpha$: ×4 at 60°, ×33 at 80°</td><td>360° horizontally; vertically as a plane</td><td>360° × 180°; the poles are stretched</td></tr>
+    <tr><td>needs</td><td>only the $H$'s (no calibration)</td><td colspan="2">$f$ (and $K$), and the rotation axis = the cylinder axis (a level camera)</td></tr>
+  </table>
+  <div class="cols c-3" style="font-size:0.66em; margin-top:0.4em; gap:0.8em">
+    <div class="box"><b>Plane</b> makes sense for a few photos (under ~90°) and is the <b>only</b> correct choice for a planar scene (a floor, a facade, a document): there the images are related by $H$, not by a rotation.</div>
+    <div class="box"><b>Cylinder</b>: a horizontal sweep from one spot (phone panoramas, a rotating robot head). Wrong for a planar scene photographed while walking.</div>
+    <div class="box"><b>Sphere</b>: full 360° cameras, VR; the format of the photo the panorama on these slides is rendered from.</div>
+  </div>
+</section>
+
+<section>
+  <h2>Warping and blending to play with</h2>
+  <div data-widget="stitch" data-config='{"step":"blend","blend":"none","steps":["warp","blend"]}'></div>
+  <p class="credit">panorama: “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section>
+  <h2>Blending</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <p>The images differ in exposure, vignetting and white balance; small misalignments remain. Overwriting gives <b>visible seams</b>.</p>
+      <p><b>Feathering</b>: a weighted average, weights falling off towards each image's border:</p>
+      <div class="box key" style="display:table; margin:0.3em auto">$$I(\mathbf x) = \frac{\sum_i w_i(\mathbf x)\, I_i(\mathbf x)}{\sum_i w_i(\mathbf x)}$$</div>
+      <p style="margin:0.2em 0">$w_i(\mathbf x)$: distance from $\mathbf x$ to the border of image $i$: a <b>distance transform</b> of the image's mask (<code>cv2.distanceTransform</code>).</p>
+    </div>
+    <div class="box">
+      <h3>Better blending</h3>
+      <ul style="font-size:0.85em; margin:0 0 0 1.1em">
+        <li><b>exposure compensation</b>: one gain per image, fitted on the overlaps</li>
+        <li><b>seam finding</b>: cut where the images agree (graph cut): hides parallax and moving people</li>
+        <li><b>multi-band blending</b> (Burt &amp; Adelson, 1983): blend low frequencies over a wide band, details over a narrow one: no ghosting, no seams</li>
+      </ul>
+      <p style="font-size:0.8em; margin:0.4em 0 0">All of it: <code>cv2.Stitcher_create()</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Homographies in robotics</h2>
+  <div class="cols" style="font-size:0.95em">
+    <ul>
+      <li><b>bird's-eye view</b> of the floor or the road (inverse perspective mapping): the ground is a plane, so camera → top view is one homography, from 4 marked floor points; parking assistants, lane detection, mobile robots</li>
+      <li><b>aerial mosaics</b>: a drone far above the ground (cases 1 and 3), maps for agriculture and inspection. For flat ground this is <b>orthorectification</b> (orthophotos, orthomosaics); hilly terrain needs a terrain model instead of one homography</li>
+    </ul>
+    <ul>
+      <li><b>planar markers</b>: the 4 corners of an ArUco/AprilTag give a homography; the pose follows from $H = K[\mathbf r_1\ \mathbf r_2\ \mathbf t]$ (lecture 2, IPPE)</li>
+      <li><b>calibration</b>: Zhang's method, one homography per view of the board (lecture 2)</li>
+      <li><b>stereo rectification</b>: one homography per image makes the epipolar lines horizontal (lecture 2 → Part 3)</li>
+      <li><b>image stabilisation</b>: undo the camera's small rotations between frames with $KRK^{-1}$ (the rotation from a gyroscope)</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Bird's-eye view: one homography of the floor</h2>
+  <div data-widget="birdseye" data-config='{}'></div>
+  <p style="font-size:0.72em; margin-top:0.4em">The floor is a plane, so camera image → top view is a single homography: here from the camera's height and pitch, or from 4 marked floor points. The floor comes out metric (the marked square is a square, distances can be read off the grid). Everything above the floor (box, sphere) is smeared away from the camera: the homography holds only for points on that plane.</p>
+</section>
+
+<section>
+  <h2>Aerial mosaics: photogrammetry flights</h2>
+  <div class="cols" style="font-size:0.76em">
+    <div>
+      <h3>The flight</h3>
+      <ul>
+        <li>a drone flies parallel lines back and forth (a "lawnmower" pattern), camera pointing straight down (nadir)</li>
+        <li>overlap: about 75 to 80% along a line, 60 to 70% between lines: every ground point is in several photos</li>
+        <li><b>ground sampling distance</b> (the size of one pixel on the ground): $\;\text{GSD} = A / f$, with $A$ the altitude and $f$ in pixels. Example: $f \approx 3650$ px (1-inch sensor, 8.8 mm lens), $A = 100$ m → 2.7 cm/px</li>
+      </ul>
+      <h3>Flat ground: homographies</h3>
+      <ul>
+        <li>photo $i$ ↔ ground plane: $H_i = K[\mathbf r_1\ \mathbf r_2\ \mathbf t]$ (case 1), the pose from GPS + IMU</li>
+        <li>refined with feature matches between overlapping photos and bundle adjustment; ground control points or RTK GPS give centimetre accuracy</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Real terrain: relief displacement</h3>
+      <svg viewBox="0 0 420 212" style="width:100%; max-width:420px; display:block; margin:0.2em auto; font-family:Inter, Arial, sans-serif">
+        <line x1="10" y1="180" x2="410" y2="180" stroke="#5fd38d" stroke-width="3"/>
+        <rect x="270" y="110" width="36" height="70" fill="#9aa1ae" fill-opacity="0.35" stroke="#9aa1ae" stroke-width="2"/>
+        <circle cx="140" cy="20" r="6" fill="#e7e9ee"/><text x="100" y="16" fill="#e7e9ee" font-size="15">camera</text>
+        <line x1="60" y1="40" x2="220" y2="40" stroke="#5ab0ff" stroke-width="3"/>
+        <line x1="140" y1="20" x2="140" y2="180" stroke="#9aa1ae" stroke-dasharray="4 4"/>
+        <line x1="140" y1="20" x2="288" y2="110" stroke="#f2b134" stroke-width="2"/>
+        <line x1="288" y1="110" x2="403" y2="180" stroke="#f2b134" stroke-width="2" stroke-dasharray="5 4"/>
+        <line x1="140" y1="20" x2="288" y2="180" stroke="#ff6b6b" stroke-width="1.6"/>
+        <circle cx="288" cy="110" r="5" fill="#f2b134"/><circle cx="288" cy="180" r="5" fill="#ff6b6b"/>
+        <circle cx="403" cy="180" r="5" fill="#f2b134"/>
+        <line x1="290" y1="192" x2="401" y2="192" stroke="#f2b134" stroke-width="2"/><text x="335" y="207" fill="#f2b134" font-size="14" font-style="italic">Δr</text>
+        <text x="325" y="120" fill="#f2b134" font-size="14">image of the roof</text>
+        <text x="236" y="198" fill="#ff6b6b" font-size="14">foot</text>
+        <text x="152" y="110" fill="#9aa1ae" font-size="14" font-style="italic">A</text>
+        <text x="256" y="150" fill="#9aa1ae" font-size="14" font-style="italic">h</text>
+      </svg>
+      <ul style="margin-top:0">
+        <li>a point at height $h$ maps through the ground homography as if it were on the ground, shifted away from the image centre by $\;\Delta r = r\,h / A$ ($r$: its distance from the centre in the image)</li>
+        <li>buildings and trees lean outwards, differently in each photo: the mosaic breaks there</li>
+        <li>the real pipeline (next lecture): structure from motion → 3D points → surface model → a <b>true orthophoto</b>, every point seen straight from above; OpenDroneMap (open source), Pix4D, Metashape</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Aerial mosaic, as the drone flies</h2>
+  <div data-widget="dronemap" data-config='{"width":650,"photoWidth":330,"info":true}'></div>
+  <p style="font-size:0.64em; margin-top:0.3em">Every new photo: its pose gives $H_i = K[\mathbf r_1\ \mathbf r_2\ \mathbf t]$ (readout), each map pixel is sent through $H_i$ into the photo (backward warping), and the photos are feathered. Westbound photos are turned by 180°: $H_i$ contains that rotation. Exact poses here; real GPS/IMU poses: next slide.</p>
+  <p class="credit">orthophoto: DOP20, Bayerische Vermessungsverwaltung, <a href="https://geodaten.bayern.de/opengeodata/">geodaten.bayern.de</a> (CC BY 4.0)</p>
+</section>
+
+<section>
+  <h2>Aerial mosaic to play with</h2>
+  <div data-widget="aerial" data-config='{}'></div>
+  <p style="font-size:0.66em; margin-top:0.3em">Each photo goes onto the map by one homography $H_i = K[\mathbf r_1\ \mathbf r_2\ \mathbf t]$ from the drone's GPS and IMU pose. Try "GPS/IMU noise" (seams: hence feature matching and bundle adjustment) and "buildings / trees (3D)" (tall objects move away from each photo's centre by $\Delta r = r\,h/A$).</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 2</div>
+  <h1>Features</h1>
+  <p class="subtitle" style="color:var(--fg-dim)">where do the correspondences come from?</p>
+</section>
+
+<section>
+  <h2>Detect, describe, match</h2>
+  <div class="flow" style="font-size:0.7em; margin:0.2em 0 0.5em">
+    <div class="step key"><b>detect</b><br><span class="small" style="font-size:0.85em">distinctive points</span></div><div class="arr">→</div>
+    <div class="step key"><b>describe</b><br><span class="small" style="font-size:0.85em">a vector per point</span></div><div class="arr">→</div>
+    <div class="step key"><b>match</b><br><span class="small" style="font-size:0.85em">nearest descriptors</span></div><div class="arr">→</div>
+    <div class="step"><b>verify</b><br><span class="small" style="font-size:0.85em">RANSAC on the geometry</span></div>
+  </div>
+  <svg viewBox="0 0 1180 500" style="width:100%; max-width:1180px; display:block; margin:auto; font-family:Inter, Arial, sans-serif">
+    <text x="0.0" y="18.0" fill="#9aa1ae" font-size="15" text-anchor="start">photo 1</text>
+    <text x="0.0" y="254.0" fill="#9aa1ae" font-size="15" text-anchor="start">photo 2 (moved, turned, darker)</text>
+    <image href="../../assets/lecture03/feat_a.jpg" x="0" y="26" width="330" height="206" preserveAspectRatio="none"/>
+    <image href="../../assets/lecture03/feat_b.jpg" x="0" y="262" width="330" height="206" preserveAspectRatio="none"/>
+    <rect x="0" y="26" width="330" height="206" fill="none" stroke="#3a3f4b"/><rect x="0" y="262" width="330" height="206" fill="none" stroke="#3a3f4b"/>
+    <g class="fragment" data-fragment-index="1">
+    <circle cx="259.4" cy="180.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="196.2" cy="180.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="236.5" cy="112.2" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="215.4" cy="114.0" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="205.3" cy="180.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="250.2" cy="180.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="65.1" cy="47.1" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="225.5" cy="116.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="152.2" cy="181.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="195.2" cy="187.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="250.2" cy="187.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="44.0" cy="110.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="155.8" cy="147.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="302.5" cy="187.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="60.5" cy="103.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="194.3" cy="115.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="47.7" cy="154.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="82.5" cy="114.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="66.9" cy="104.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="143.9" cy="180.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="145.8" cy="38.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="55.9" cy="63.6" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="210.8" cy="125.0" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="247.5" cy="172.7" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="44.0" cy="53.5" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="89.8" cy="115.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="255.8" cy="96.6" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="141.2" cy="173.6" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="273.2" cy="93.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="193.4" cy="172.7" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="165.9" cy="147.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="25.7" cy="182.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="299.8" cy="147.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="181.5" cy="114.0" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="203.5" cy="107.6" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="57.8" cy="80.1" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="297.0" cy="117.7" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="278.7" cy="92.0" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="146.7" cy="61.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="16.5" cy="113.1" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="244.8" cy="308.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="263.1" cy="348.2" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="238.3" cy="322.5" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="273.2" cy="334.4" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="244.8" cy="318.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="176.0" cy="410.5" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="267.7" cy="319.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="257.6" cy="339.0" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="264.0" cy="355.5" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="246.6" cy="334.4" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="256.7" cy="328.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="259.4" cy="320.7" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="125.6" cy="343.6" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="147.6" cy="339.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="109.1" cy="415.1" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="253.0" cy="319.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="119.2" cy="414.2" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="166.8" cy="410.5" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="265.8" cy="307.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="135.7" cy="345.4" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="64.2" cy="418.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="110.0" cy="422.4" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="235.6" cy="332.6" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="166.8" cy="417.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="222.8" cy="414.2" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="239.2" cy="350.0" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="103.6" cy="346.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="65.1" cy="383.0" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="121.9" cy="354.6" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="163.2" cy="402.2" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="106.3" cy="406.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="55.0" cy="418.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="165.9" cy="320.7" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="52.2" cy="410.5" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="309.8" cy="313.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="48.6" cy="294.1" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="268.6" cy="396.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="211.8" cy="340.8" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="89.8" cy="346.3" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <circle cx="216.3" cy="372.9" r="4" fill="none" stroke="#f2b134" stroke-width="2"/>
+    </g>
+    <g class="fragment" data-fragment-index="2">
+    <circle cx="236.5" cy="112.2" r="8" fill="none" stroke="#ff6b6b" stroke-width="3"/>
+    <circle cx="147.6" cy="339.9" r="8" fill="none" stroke="#ff6b6b" stroke-width="3"/>
+    <circle cx="250.2" cy="180.9" r="8" fill="none" stroke="#5ab0ff" stroke-width="3"/>
+    <circle cx="166.8" cy="410.5" r="8" fill="none" stroke="#5ab0ff" stroke-width="3"/>
+    <svg x="392" y="26" width="72" height="72" viewBox="500 172 32 32" preserveAspectRatio="none"><image href="../../assets/lecture03/feat_a.jpg" x="0" y="0" width="720" height="450" style="image-rendering:pixelated"/></svg>
+    <rect x="392" y="26" width="72" height="72" fill="none" stroke="#ff6b6b" stroke-width="3"/>
+    <text x="474.0" y="38.0" fill="#9aa1ae" font-size="13" text-anchor="start">photo 1</text>
+    <line x1="474" y1="98" x2="710.8" y2="98" stroke="#3a3f4b"/>
+    <rect x="474.0" y="97.5" width="5.8" height="0.5" fill="#ff6b6b"/>
+    <rect x="481.4" y="97.1" width="5.8" height="0.9" fill="#ff6b6b"/>
+    <rect x="488.8" y="97.6" width="5.8" height="0.4" fill="#ff6b6b"/>
+    <rect x="496.2" y="98.0" width="5.8" height="0.0" fill="#ff6b6b"/>
+    <rect x="503.6" y="90.2" width="5.8" height="7.8" fill="#ff6b6b"/>
+    <rect x="511.0" y="93.6" width="5.8" height="4.4" fill="#ff6b6b"/>
+    <rect x="518.4" y="98.0" width="5.8" height="0.0" fill="#ff6b6b"/>
+    <rect x="525.8" y="98.0" width="5.8" height="0.0" fill="#ff6b6b"/>
+    <rect x="533.2" y="97.5" width="5.8" height="0.5" fill="#ff6b6b"/>
+    <rect x="540.6" y="97.6" width="5.8" height="0.4" fill="#ff6b6b"/>
+    <rect x="548.0" y="97.9" width="5.8" height="0.1" fill="#ff6b6b"/>
+    <rect x="555.4" y="94.9" width="5.8" height="3.1" fill="#ff6b6b"/>
+    <rect x="562.8" y="95.8" width="5.8" height="2.2" fill="#ff6b6b"/>
+    <rect x="570.2" y="92.0" width="5.8" height="6.0" fill="#ff6b6b"/>
+    <rect x="577.6" y="87.3" width="5.8" height="10.7" fill="#ff6b6b"/>
+    <rect x="585.0" y="92.7" width="5.8" height="5.3" fill="#ff6b6b"/>
+    <rect x="592.4" y="95.1" width="5.8" height="2.9" fill="#ff6b6b"/>
+    <rect x="599.8" y="96.7" width="5.8" height="1.3" fill="#ff6b6b"/>
+    <rect x="607.2" y="97.5" width="5.8" height="0.5" fill="#ff6b6b"/>
+    <rect x="614.6" y="87.4" width="5.8" height="10.6" fill="#ff6b6b"/>
+    <rect x="622.0" y="69.0" width="5.8" height="29.0" fill="#ff6b6b"/>
+    <rect x="629.4" y="54.9" width="5.8" height="43.1" fill="#ff6b6b"/>
+    <rect x="636.8" y="88.9" width="5.8" height="9.1" fill="#ff6b6b"/>
+    <rect x="644.2" y="95.0" width="5.8" height="3.0" fill="#ff6b6b"/>
+    <rect x="651.6" y="95.5" width="5.8" height="2.5" fill="#ff6b6b"/>
+    <rect x="659.0" y="96.7" width="5.8" height="1.3" fill="#ff6b6b"/>
+    <rect x="666.4" y="96.1" width="5.8" height="1.9" fill="#ff6b6b"/>
+    <rect x="673.8" y="95.7" width="5.8" height="2.3" fill="#ff6b6b"/>
+    <rect x="681.2" y="96.6" width="5.8" height="1.4" fill="#ff6b6b"/>
+    <rect x="688.6" y="89.3" width="5.8" height="8.7" fill="#ff6b6b"/>
+    <rect x="696.0" y="65.6" width="5.8" height="32.4" fill="#ff6b6b"/>
+    <rect x="703.4" y="46.0" width="5.8" height="52.0" fill="#ff6b6b"/>
+    <svg x="392" y="134" width="72" height="72" viewBox="306 154 32 32" preserveAspectRatio="none"><image href="../../assets/lecture03/feat_b.jpg" x="0" y="0" width="720" height="450" style="image-rendering:pixelated"/></svg>
+    <rect x="392" y="134" width="72" height="72" fill="none" stroke="#ff6b6b" stroke-width="3"/>
+    <text x="474.0" y="146.0" fill="#9aa1ae" font-size="13" text-anchor="start">photo 2</text>
+    <line x1="474" y1="206" x2="710.8" y2="206" stroke="#3a3f4b"/>
+    <rect x="474.0" y="205.6" width="5.8" height="0.4" fill="#ff6b6b"/>
+    <rect x="481.4" y="205.0" width="5.8" height="1.0" fill="#ff6b6b"/>
+    <rect x="488.8" y="205.8" width="5.8" height="0.2" fill="#ff6b6b"/>
+    <rect x="496.2" y="206.0" width="5.8" height="0.0" fill="#ff6b6b"/>
+    <rect x="503.6" y="193.8" width="5.8" height="12.2" fill="#ff6b6b"/>
+    <rect x="511.0" y="201.5" width="5.8" height="4.5" fill="#ff6b6b"/>
+    <rect x="518.4" y="205.9" width="5.8" height="0.1" fill="#ff6b6b"/>
+    <rect x="525.8" y="205.9" width="5.8" height="0.1" fill="#ff6b6b"/>
+    <rect x="533.2" y="205.5" width="5.8" height="0.5" fill="#ff6b6b"/>
+    <rect x="540.6" y="205.7" width="5.8" height="0.3" fill="#ff6b6b"/>
+    <rect x="548.0" y="205.9" width="5.8" height="0.1" fill="#ff6b6b"/>
+    <rect x="555.4" y="199.7" width="5.8" height="6.3" fill="#ff6b6b"/>
+    <rect x="562.8" y="206.0" width="5.8" height="0.0" fill="#ff6b6b"/>
+    <rect x="570.2" y="206.0" width="5.8" height="0.0" fill="#ff6b6b"/>
+    <rect x="577.6" y="187.2" width="5.8" height="18.8" fill="#ff6b6b"/>
+    <rect x="585.0" y="200.9" width="5.8" height="5.1" fill="#ff6b6b"/>
+    <rect x="592.4" y="201.8" width="5.8" height="4.2" fill="#ff6b6b"/>
+    <rect x="599.8" y="205.9" width="5.8" height="0.1" fill="#ff6b6b"/>
+    <rect x="607.2" y="206.0" width="5.8" height="0.0" fill="#ff6b6b"/>
+    <rect x="614.6" y="193.1" width="5.8" height="12.9" fill="#ff6b6b"/>
+    <rect x="622.0" y="165.6" width="5.8" height="40.4" fill="#ff6b6b"/>
+    <rect x="629.4" y="172.1" width="5.8" height="33.9" fill="#ff6b6b"/>
+    <rect x="636.8" y="201.9" width="5.8" height="4.1" fill="#ff6b6b"/>
+    <rect x="644.2" y="202.5" width="5.8" height="3.5" fill="#ff6b6b"/>
+    <rect x="651.6" y="203.9" width="5.8" height="2.1" fill="#ff6b6b"/>
+    <rect x="659.0" y="203.8" width="5.8" height="2.2" fill="#ff6b6b"/>
+    <rect x="666.4" y="204.8" width="5.8" height="1.2" fill="#ff6b6b"/>
+    <rect x="673.8" y="204.6" width="5.8" height="1.4" fill="#ff6b6b"/>
+    <rect x="681.2" y="204.8" width="5.8" height="1.2" fill="#ff6b6b"/>
+    <rect x="688.6" y="200.4" width="5.8" height="5.6" fill="#ff6b6b"/>
+    <rect x="696.0" y="169.4" width="5.8" height="36.6" fill="#ff6b6b"/>
+    <rect x="703.4" y="154.0" width="5.8" height="52.0" fill="#ff6b6b"/>
+    <svg x="392" y="256" width="72" height="72" viewBox="530 322 32 32" preserveAspectRatio="none"><image href="../../assets/lecture03/feat_a.jpg" x="0" y="0" width="720" height="450" style="image-rendering:pixelated"/></svg>
+    <rect x="392" y="256" width="72" height="72" fill="none" stroke="#5ab0ff" stroke-width="3"/>
+    <text x="474.0" y="268.0" fill="#9aa1ae" font-size="13" text-anchor="start">photo 1</text>
+    <line x1="474" y1="328" x2="710.8" y2="328" stroke="#3a3f4b"/>
+    <rect x="474.0" y="324.7" width="5.8" height="3.3" fill="#5ab0ff"/>
+    <rect x="481.4" y="313.2" width="5.8" height="14.8" fill="#5ab0ff"/>
+    <rect x="488.8" y="326.1" width="5.8" height="1.9" fill="#5ab0ff"/>
+    <rect x="496.2" y="325.6" width="5.8" height="2.4" fill="#5ab0ff"/>
+    <rect x="503.6" y="325.7" width="5.8" height="2.3" fill="#5ab0ff"/>
+    <rect x="511.0" y="322.0" width="5.8" height="6.0" fill="#5ab0ff"/>
+    <rect x="518.4" y="311.9" width="5.8" height="16.1" fill="#5ab0ff"/>
+    <rect x="525.8" y="327.3" width="5.8" height="0.7" fill="#5ab0ff"/>
+    <rect x="533.2" y="326.6" width="5.8" height="1.4" fill="#5ab0ff"/>
+    <rect x="540.6" y="279.0" width="5.8" height="49.0" fill="#5ab0ff"/>
+    <rect x="548.0" y="304.8" width="5.8" height="23.2" fill="#5ab0ff"/>
+    <rect x="555.4" y="325.8" width="5.8" height="2.2" fill="#5ab0ff"/>
+    <rect x="562.8" y="326.2" width="5.8" height="1.8" fill="#5ab0ff"/>
+    <rect x="570.2" y="314.1" width="5.8" height="13.9" fill="#5ab0ff"/>
+    <rect x="577.6" y="319.8" width="5.8" height="8.2" fill="#5ab0ff"/>
+    <rect x="585.0" y="326.7" width="5.8" height="1.3" fill="#5ab0ff"/>
+    <rect x="592.4" y="312.6" width="5.8" height="15.4" fill="#5ab0ff"/>
+    <rect x="599.8" y="328.0" width="5.8" height="0.0" fill="#5ab0ff"/>
+    <rect x="607.2" y="328.0" width="5.8" height="0.0" fill="#5ab0ff"/>
+    <rect x="614.6" y="326.1" width="5.8" height="1.9" fill="#5ab0ff"/>
+    <rect x="622.0" y="326.2" width="5.8" height="1.8" fill="#5ab0ff"/>
+    <rect x="629.4" y="327.9" width="5.8" height="0.1" fill="#5ab0ff"/>
+    <rect x="636.8" y="328.0" width="5.8" height="0.0" fill="#5ab0ff"/>
+    <rect x="644.2" y="276.0" width="5.8" height="52.0" fill="#5ab0ff"/>
+    <rect x="651.6" y="326.9" width="5.8" height="1.1" fill="#5ab0ff"/>
+    <rect x="659.0" y="317.0" width="5.8" height="11.0" fill="#5ab0ff"/>
+    <rect x="666.4" y="321.3" width="5.8" height="6.7" fill="#5ab0ff"/>
+    <rect x="673.8" y="323.9" width="5.8" height="4.1" fill="#5ab0ff"/>
+    <rect x="681.2" y="313.3" width="5.8" height="14.7" fill="#5ab0ff"/>
+    <rect x="688.6" y="299.5" width="5.8" height="28.5" fill="#5ab0ff"/>
+    <rect x="696.0" y="313.9" width="5.8" height="14.1" fill="#5ab0ff"/>
+    <rect x="703.4" y="327.0" width="5.8" height="1.0" fill="#5ab0ff"/>
+    <svg x="392" y="364" width="72" height="72" viewBox="348 308 32 32" preserveAspectRatio="none"><image href="../../assets/lecture03/feat_b.jpg" x="0" y="0" width="720" height="450" style="image-rendering:pixelated"/></svg>
+    <rect x="392" y="364" width="72" height="72" fill="none" stroke="#5ab0ff" stroke-width="3"/>
+    <text x="474.0" y="376.0" fill="#9aa1ae" font-size="13" text-anchor="start">photo 2</text>
+    <line x1="474" y1="436" x2="710.8" y2="436" stroke="#3a3f4b"/>
+    <rect x="474.0" y="434.5" width="5.8" height="1.5" fill="#5ab0ff"/>
+    <rect x="481.4" y="425.7" width="5.8" height="10.3" fill="#5ab0ff"/>
+    <rect x="488.8" y="432.2" width="5.8" height="3.8" fill="#5ab0ff"/>
+    <rect x="496.2" y="434.0" width="5.8" height="2.0" fill="#5ab0ff"/>
+    <rect x="503.6" y="433.4" width="5.8" height="2.6" fill="#5ab0ff"/>
+    <rect x="511.0" y="427.9" width="5.8" height="8.1" fill="#5ab0ff"/>
+    <rect x="518.4" y="420.9" width="5.8" height="15.1" fill="#5ab0ff"/>
+    <rect x="525.8" y="432.9" width="5.8" height="3.1" fill="#5ab0ff"/>
+    <rect x="533.2" y="434.4" width="5.8" height="1.6" fill="#5ab0ff"/>
+    <rect x="540.6" y="384.0" width="5.8" height="52.0" fill="#5ab0ff"/>
+    <rect x="548.0" y="431.2" width="5.8" height="4.8" fill="#5ab0ff"/>
+    <rect x="555.4" y="433.8" width="5.8" height="2.2" fill="#5ab0ff"/>
+    <rect x="562.8" y="433.9" width="5.8" height="2.1" fill="#5ab0ff"/>
+    <rect x="570.2" y="423.8" width="5.8" height="12.2" fill="#5ab0ff"/>
+    <rect x="577.6" y="432.6" width="5.8" height="3.4" fill="#5ab0ff"/>
+    <rect x="585.0" y="435.2" width="5.8" height="0.8" fill="#5ab0ff"/>
+    <rect x="592.4" y="422.6" width="5.8" height="13.4" fill="#5ab0ff"/>
+    <rect x="599.8" y="436.0" width="5.8" height="0.0" fill="#5ab0ff"/>
+    <rect x="607.2" y="436.0" width="5.8" height="0.0" fill="#5ab0ff"/>
+    <rect x="614.6" y="433.3" width="5.8" height="2.7" fill="#5ab0ff"/>
+    <rect x="622.0" y="434.8" width="5.8" height="1.2" fill="#5ab0ff"/>
+    <rect x="629.4" y="436.0" width="5.8" height="0.0" fill="#5ab0ff"/>
+    <rect x="636.8" y="435.8" width="5.8" height="0.2" fill="#5ab0ff"/>
+    <rect x="644.2" y="392.3" width="5.8" height="43.7" fill="#5ab0ff"/>
+    <rect x="651.6" y="433.7" width="5.8" height="2.3" fill="#5ab0ff"/>
+    <rect x="659.0" y="420.5" width="5.8" height="15.5" fill="#5ab0ff"/>
+    <rect x="666.4" y="429.4" width="5.8" height="6.6" fill="#5ab0ff"/>
+    <rect x="673.8" y="430.3" width="5.8" height="5.7" fill="#5ab0ff"/>
+    <rect x="681.2" y="430.3" width="5.8" height="5.7" fill="#5ab0ff"/>
+    <rect x="688.6" y="405.5" width="5.8" height="30.5" fill="#5ab0ff"/>
+    <rect x="696.0" y="430.2" width="5.8" height="5.8" fill="#5ab0ff"/>
+    <rect x="703.4" y="433.5" width="5.8" height="2.5" fill="#5ab0ff"/>
+    <text x="392.0" y="470.0" fill="#9aa1ae" font-size="14" text-anchor="start">patch → vector (32 numbers: 4 cells × 8 gradient directions)</text>
+    </g>
+    <g class="fragment" data-fragment-index="3">
+    <rect x="800" y="26" width="380" height="380" rx="8" fill="#1b1d22" stroke="#3a3f4b"/>
+    <line x1="874.0" y1="369.0" x2="838.1" y2="372.1" stroke="#ff6b6b" stroke-width="1.6"/>
+    <line x1="818.5" y1="182.7" x2="825.8" y2="160.9" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="945.5" y1="164.0" x2="938.0" y2="175.5" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="1116.2" y1="357.4" x2="1113.6" y2="340.0" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="1002.8" y1="119.1" x2="984.6" y2="113.0" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="1149.6" y1="163.8" x2="1136.8" y2="126.5" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="905.2" y1="340.1" x2="895.2" y2="330.7" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="1049.3" y1="41.0" x2="1057.1" y2="44.5" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="858.8" y1="90.1" x2="848.6" y2="123.0" stroke="#ff6b6b" stroke-width="1.6"/>
+    <line x1="949.5" y1="176.2" x2="954.0" y2="219.2" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="1137.5" y1="283.5" x2="1133.3" y2="258.2" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="938.5" y1="216.3" x2="908.0" y2="232.0" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="1055.6" y1="237.0" x2="1070.0" y2="263.7" stroke="#ff6b6b" stroke-width="1.6"/>
+    <line x1="941.0" y1="118.1" x2="944.2" y2="112.1" stroke="#5fd38d" stroke-width="1.6"/>
+    <line x1="1060.9" y1="125.9" x2="1039.9" y2="136.6" stroke="#5fd38d" stroke-width="1.6"/>
+    <circle cx="874.0" cy="369.0" r="4" fill="#9aa1ae"/>
+    <circle cx="1116.4" cy="361.8" r="4" fill="#9aa1ae"/>
+    <circle cx="818.5" cy="182.7" r="6" fill="#ff6b6b"/>
+    <circle cx="945.5" cy="164.0" r="4" fill="#9aa1ae"/>
+    <circle cx="865.9" cy="367.4" r="4" fill="#9aa1ae"/>
+    <circle cx="1116.2" cy="357.4" r="6" fill="#5ab0ff"/>
+    <circle cx="859.9" cy="123.9" r="4" fill="#9aa1ae"/>
+    <circle cx="1002.8" cy="119.1" r="4" fill="#9aa1ae"/>
+    <circle cx="862.1" cy="358.0" r="4" fill="#9aa1ae"/>
+    <circle cx="1129.8" cy="171.9" r="4" fill="#9aa1ae"/>
+    <circle cx="1149.6" cy="163.8" r="4" fill="#9aa1ae"/>
+    <circle cx="824.5" cy="338.0" r="4" fill="#9aa1ae"/>
+    <circle cx="905.2" cy="340.1" r="4" fill="#9aa1ae"/>
+    <circle cx="1130.4" cy="205.8" r="4" fill="#9aa1ae"/>
+    <circle cx="971.8" cy="185.8" r="4" fill="#9aa1ae"/>
+    <circle cx="1049.3" cy="41.0" r="4" fill="#9aa1ae"/>
+    <circle cx="923.2" cy="354.6" r="4" fill="#9aa1ae"/>
+    <circle cx="1011.1" cy="259.8" r="4" fill="#9aa1ae"/>
+    <circle cx="928.1" cy="169.5" r="4" fill="#9aa1ae"/>
+    <circle cx="1104.1" cy="325.6" r="4" fill="#9aa1ae"/>
+    <circle cx="858.8" cy="90.1" r="4" fill="#9aa1ae"/>
+    <circle cx="1014.3" cy="75.8" r="4" fill="#9aa1ae"/>
+    <circle cx="949.5" cy="176.2" r="4" fill="#9aa1ae"/>
+    <circle cx="1137.5" cy="283.5" r="4" fill="#9aa1ae"/>
+    <circle cx="829.5" cy="263.7" r="4" fill="#9aa1ae"/>
+    <circle cx="952.7" cy="276.5" r="4" fill="#9aa1ae"/>
+    <circle cx="938.5" cy="216.3" r="4" fill="#9aa1ae"/>
+    <circle cx="1156.1" cy="279.7" r="4" fill="#9aa1ae"/>
+    <circle cx="815.0" cy="136.1" r="4" fill="#9aa1ae"/>
+    <circle cx="1139.5" cy="299.9" r="4" fill="#9aa1ae"/>
+    <circle cx="1055.6" cy="237.0" r="4" fill="#9aa1ae"/>
+    <circle cx="1087.4" cy="304.6" r="4" fill="#9aa1ae"/>
+    <circle cx="1013.0" cy="262.5" r="4" fill="#9aa1ae"/>
+    <circle cx="941.0" cy="118.1" r="4" fill="#9aa1ae"/>
+    <circle cx="852.3" cy="114.7" r="4" fill="#9aa1ae"/>
+    <circle cx="999.5" cy="104.2" r="4" fill="#9aa1ae"/>
+    <circle cx="1060.9" cy="125.9" r="4" fill="#9aa1ae"/>
+    <circle cx="984.9" cy="111.0" r="4" fill="#9aa1ae"/>
+    <circle cx="842.0" cy="103.8" r="4" fill="#9aa1ae"/>
+    <circle cx="1039.8" cy="215.3" r="4" fill="#9aa1ae"/>
+    <rect x="814.9" y="180.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1005.7" y="217.2" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1026.4" y="90.6" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="990.9" y="197.6" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="899.9" y="201.9" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="824.2" y="364.7" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="942.9" y="173.3" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1061.4" y="251.2" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="957.7" y="264.5" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="968.7" y="319.2" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1018.9" y="274.7" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="989.5" y="249.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="934.0" y="171.5" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="819.8" y="154.9" width="12" height="12" fill="none" stroke="#ff6b6b" stroke-width="2"/>
+    <rect x="1075.0" y="328.1" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="992.2" y="195.9" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="829.2" y="365.2" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1107.6" y="334.0" width="12" height="12" fill="none" stroke="#5ab0ff" stroke-width="2"/>
+    <rect x="919.5" y="129.7" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="980.6" y="109.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="834.1" y="368.1" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1116.0" y="98.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1045.7" y="166.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1132.8" y="122.5" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1142.8" y="130.5" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1096.6" y="162.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1053.1" y="40.5" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="891.2" y="326.7" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="950.0" y="215.2" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1129.3" y="254.2" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1157.0" y="259.6" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1060.8" y="315.2" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="904.0" y="228.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1150.2" y="288.6" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="848.5" y="271.7" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="844.6" y="119.0" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1161.0" y="275.4" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1035.9" y="132.6" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="940.2" y="108.1" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <rect x="1066.0" y="259.7" width="8" height="8" fill="none" stroke="#9aa1ae" stroke-width="2"/>
+    <text x="810.0" y="426.0" fill="#9aa1ae" font-size="14" text-anchor="start">● photo 1, □ photo 2: one point per descriptor</text>
+    <text x="810.0" y="444.0" fill="#9aa1ae" font-size="14" text-anchor="start">(the 32-D space, shown in 2D)</text>
+    <text x="810.0" y="464.0" fill="#e7e9ee" font-size="14" text-anchor="start">match = nearest point of the other photo:</text>
+    <text x="810.0" y="482.0" fill="#e7e9ee" font-size="14" text-anchor="start"><tspan fill="#5fd38d">12 right</tspan>, <tspan fill="#ff6b6b">3 wrong</tspan> (verify: RANSAC removes them)</text>
+    <line x1="259.4" y1="180.9" x2="64.2" y2="418.8" stroke="#ff6b6b" stroke-width="1.8"/>
+    <line x1="236.5" y1="112.2" x2="147.6" y2="339.9" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="215.4" y1="114.0" x2="125.6" y2="343.6" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="250.2" y1="180.9" x2="166.8" y2="410.5" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="225.5" y1="116.8" x2="135.7" y2="345.4" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="250.2" y1="187.3" x2="166.8" y2="417.8" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="155.8" y1="147.9" x2="65.1" y2="383.0" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="194.3" y1="115.8" x2="103.6" y2="346.3" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="145.8" y1="38.8" x2="48.6" y2="294.1" stroke="#ff6b6b" stroke-width="1.8"/>
+    <line x1="210.8" y1="125.0" x2="121.9" y2="354.6" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="247.5" y1="172.7" x2="163.2" y2="402.2" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="255.8" y1="96.6" x2="165.9" y2="320.7" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="165.9" y1="147.9" x2="216.3" y2="372.9" stroke="#ff6b6b" stroke-width="1.8"/>
+    <line x1="181.5" y1="114.0" x2="89.8" y2="346.3" stroke="#5fd38d" stroke-width="1.8"/>
+    <line x1="297.0" y1="117.7" x2="211.8" y2="340.8" stroke="#5fd38d" stroke-width="1.8"/>
+    </g>
+  </svg>
+  <p class="credit">photos: crops of “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section>
+  <h2>Finding corresponding points automatically</h2>
+  <div class="flow" style="font-size:0.8em; margin:0.6em 0 0.8em">
+    <div class="step key"><b>detect</b><br><span class="small" style="font-size:0.85em">distinctive points</span></div><div class="arr">→</div>
+    <div class="step key"><b>describe</b><br><span class="small" style="font-size:0.85em">a vector per point</span></div><div class="arr">→</div>
+    <div class="step key"><b>match</b><br><span class="small" style="font-size:0.85em">nearest descriptors</span></div><div class="arr">→</div>
+    <div class="step"><b>verify</b><br><span class="small" style="font-size:0.85em">RANSAC on the geometry</span></div>
+  </div>
+  <div class="cols" style="font-size:0.95em">
+    <div>
+      <h3>A good keypoint is</h3>
+      <ul>
+        <li><b>repeatable</b>: the same physical point is found in both images</li>
+        <li><b>well localised</b>: its position is precise in both directions</li>
+        <li><b>distinctive</b>: its neighbourhood looks unlike others</li>
+      </ul>
+    </div>
+    <div>
+      <h3>…despite</h3>
+      <ul>
+        <li>translation, rotation, <b>scale</b> (the robot moves closer)</li>
+        <li>brightness and contrast changes</li>
+        <li>moderate changes of viewpoint, noise, blur</li>
+      </ul>
+      <p class="small" style="font-size:0.8em">and fast enough for a robot: hundreds to thousands of points per frame, at frame rate.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What is a good keypoint?</h2>
+  <p style="font-size:0.72em; margin:0 0 0.3em"><b>The experiment</b>: take the small square window (orange) around a point, shift it by $(\Delta u, \Delta v)$ and measure how different it looks from the unshifted window: $E(\Delta) = \sum_W \big(I(\mathbf x + \Delta) - I(\mathbf x)\big)^2$. A point is easy to find again if <b>every</b> shift makes a difference.</p>
+  <div style="display:flex; gap:0.8em; align-items:flex-start">
+    <div style="flex:none"><div data-widget="harris" data-config='{"width":400}'></div></div>
+    <div style="flex:1; min-width:0; font-size:0.6em; line-height:1.3; display:flex; flex-direction:column; gap:0.45em">
+      <div class="box"><b>shift error</b>: $E$ for all shifts within ±8 px, the centre is no shift. Dark: looks the same, bright: different. <b>flat</b>: dark everywhere (no shift is noticed). <b>edge</b>: a dark valley along the edge (sliding along it is not noticed). <b>corner</b>: dark only at the centre (every shift is noticed).</div>
+      <div class="box"><b>quadratic</b>: for small shifts $E(\Delta) \approx \Delta^\top M \Delta$, a $2\times2$ matrix computed from the image gradients (next slide). Its ellipse summarises the error surface; the semi-axes show the eigenvalues $\lambda_1 \ge \lambda_2$.</div>
+      <div class="box key"><b>eigenvalues of $M$</b>: both small: flat; one large: edge; both large: corner. "Harris corners" marks every point of the image that passes this test.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Harris corner detector</h2>
+  <div class="cols" style="font-size:0.8em; grid-template-columns: 1.45fr 1fr">
+    <div>
+      <div class="box" style="font-size:0.82em; margin:0 0 0.3em; padding:0.3em 0.6em">Formally the image is a differentiable function $I: \mathbb R^2 \to \mathbb R$ (the brightness before sampling, or a smooth interpolation of the pixels); the pixels are its samples. $I_x = \partial I/\partial x$, $I_y = \partial I/\partial y$: its partial derivatives, at the pixels approximated by finite differences (e.g. Sobel). The gradient $\nabla I(\mathbf x) = \begin{bmatrix} I_x(\mathbf x)\\ I_y(\mathbf x)\end{bmatrix}$ is, at each pixel, a <b>column vector</b> in $\mathbb R^2$: so $\nabla I^\top\Delta$ is a number and $\nabla I\,\nabla I^\top$ a $2\times2$ matrix.</div>
+      <p style="margin:0">Shift the window by $\Delta \in \mathbb R^2$; Taylor: $I(\mathbf x + \Delta) \approx I(\mathbf x) + \nabla I(\mathbf x)^\top \Delta$</p>
+      <p style="margin:0">$$\begin{aligned} E(\Delta) &= \sum_{\mathbf x \in W} \big(I(\mathbf x + \Delta) - I(\mathbf x)\big)^2 \approx \sum_{\mathbf x \in W} \big(\nabla I(\mathbf x)^\top \Delta\big)^2\\ &= \sum_{\mathbf x \in W} \Delta^\top\, \nabla I(\mathbf x)\,\nabla I(\mathbf x)^\top\, \Delta = \Delta^\top M\, \Delta \end{aligned}$$</p>
+      <div class="box key" style="display:table; margin:0.2em auto">$$M = \sum_{\mathbf x \in W} \nabla I\,\nabla I^\top = \sum_{\mathbf x \in W}\begin{bmatrix} I_x^2 & I_x I_y\\ I_x I_y & I_y^2\end{bmatrix}$$</div>
+      <p style="margin:0.3em 0 0">The structure tensor: a quadratic form again; its eigenvalues $\lambda_1 \ge \lambda_2$ say how fast $E$ grows in the best and worst direction.</p>
+    </div>
+    <div>
+      <table style="font-size:0.95em">
+        <tr><th></th><th>$\lambda_1$</th><th>$\lambda_2$</th></tr>
+        <tr><td>flat</td><td>small</td><td>small</td></tr>
+        <tr><td>edge</td><td>large</td><td>small</td></tr>
+        <tr><td>corner</td><td>large</td><td>large</td></tr>
+      </table>
+      <p style="margin-bottom:0">Harris &amp; Stephens (1988), no eigenvalues needed:</p>
+      <p>$$R = \det M - k\,(\operatorname{tr} M)^2 = \lambda_1\lambda_2 - k(\lambda_1 + \lambda_2)^2$$</p>
+      <p style="font-size:0.85em; margin:0">$k \approx 0.04$ to $0.06$; keypoints = local maxima of $R$ above a threshold. Shi-Tomasi: $\min(\lambda_1, \lambda_2)$, <code>cv2.goodFeaturesToTrack</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Scale</h2>
+  <div class="cols" style="grid-template-columns: auto 1fr; gap:1.4em">
+    <svg viewBox="0 0 420 230" style="width:440px; display:block; font-family:Inter, Arial, sans-serif">
+      <path d="M 20 210 L 20 110 Q 20 30 100 30 L 190 30" fill="none" stroke="#e7e9ee" stroke-width="4"/>
+      <circle cx="20" cy="150" r="14" fill="none" stroke="#5ab0ff" stroke-width="2.5"/>
+      <circle cx="43.4" cy="53.4" r="14" fill="none" stroke="#5ab0ff" stroke-width="2.5"/>
+      <circle cx="150" cy="30" r="14" fill="none" stroke="#5ab0ff" stroke-width="2.5"/>
+      <text x="40" y="200" fill="#5ab0ff" font-size="16">small window:</text>
+      <text x="40" y="220" fill="#5ab0ff" font-size="16">every position is an edge</text>
+      <path d="M 230 210 L 230 110 Q 230 30 310 30 L 400 30" fill="none" stroke="#e7e9ee" stroke-width="4"/>
+      <circle cx="268" cy="68" r="66" fill="none" stroke="#f2b134" stroke-width="2.5"/>
+      <text x="250" y="200" fill="#f2b134" font-size="16">large window:</text>
+      <text x="250" y="220" fill="#f2b134" font-size="16">a corner</text>
+    </svg>
+    <div style="font-size:0.85em">
+      <p>Whether a structure is a corner depends on the window size relative to the image of it: which changes when the robot moves closer.</p>
+      <p><b>Scale space</b>: blur the image at many scales $\sigma$ (Gaussian pyramid); look for extrema in $(x, y, \sigma)$ of a blob response, e.g. the difference of Gaussians (SIFT). Each keypoint gets a position <b>and</b> a characteristic scale.</p>
+      <p><b>Orientation</b>: the dominant gradient direction around the point. Describing the patch in this scaled, rotated frame makes the descriptor invariant to scale and rotation.</p>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>Descriptors: SIFT <span class="optional-badge">optional</span></h2>
+  <div class="cols" style="grid-template-columns: auto 1fr; gap:1.2em">
+    <div class="center">
+      <svg viewBox="0 0 580 290" style="width:540px; display:block; font-family:Inter, Arial, sans-serif">
+        <defs><marker id="asf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+        <line x1="10" y1="10.0" x2="250" y2="10.0" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="10.0" y1="10" x2="10.0" y2="250" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="10" y1="25.0" x2="250" y2="25.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="25.0" y1="10" x2="25.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="40.0" x2="250" y2="40.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="40.0" y1="10" x2="40.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="55.0" x2="250" y2="55.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="55.0" y1="10" x2="55.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="70.0" x2="250" y2="70.0" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="70.0" y1="10" x2="70.0" y2="250" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="10" y1="85.0" x2="250" y2="85.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="85.0" y1="10" x2="85.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="100.0" x2="250" y2="100.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="100.0" y1="10" x2="100.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="115.0" x2="250" y2="115.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="115.0" y1="10" x2="115.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="130.0" x2="250" y2="130.0" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="130.0" y1="10" x2="130.0" y2="250" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="10" y1="145.0" x2="250" y2="145.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="145.0" y1="10" x2="145.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="160.0" x2="250" y2="160.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="160.0" y1="10" x2="160.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="175.0" x2="250" y2="175.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="175.0" y1="10" x2="175.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="190.0" x2="250" y2="190.0" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="190.0" y1="10" x2="190.0" y2="250" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="10" y1="205.0" x2="250" y2="205.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="205.0" y1="10" x2="205.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="220.0" x2="250" y2="220.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="220.0" y1="10" x2="220.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="235.0" x2="250" y2="235.0" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="235.0" y1="10" x2="235.0" y2="250" stroke="#3a3f4b" stroke-width="0.6"/>
+<line x1="10" y1="250.0" x2="250" y2="250.0" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="250.0" y1="10" x2="250.0" y2="250" stroke="#9aa1ae" stroke-width="2.5"/>
+<line x1="20.2" y1="35.3" x2="29.8" y2="14.7" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="53.7" y1="38.4" x2="56.3" y2="11.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="79.2" y1="30.7" x2="90.8" y2="19.3" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="101.7" y1="33.0" x2="128.3" y2="17.0" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="129.2" y1="31.2" x2="160.8" y2="18.8" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="164.0" y1="30.4" x2="186.0" y2="19.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="191.9" y1="29.2" x2="218.1" y2="20.8" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="225.8" y1="23.1" x2="244.2" y2="26.9" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="16.7" y1="64.6" x2="33.3" y2="45.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="44.1" y1="64.9" x2="65.9" y2="45.1" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="77.4" y1="67.7" x2="92.6" y2="42.3" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="105.2" y1="64.1" x2="124.8" y2="45.9" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="131.9" y1="63.8" x2="158.1" y2="46.2" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="164.3" y1="61.0" x2="185.7" y2="49.0" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="190.8" y1="57.7" x2="219.2" y2="52.3" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="219.7" y1="49.4" x2="250.3" y2="60.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="18.0" y1="94.7" x2="32.0" y2="75.3" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="58.2" y1="101.1" x2="51.8" y2="68.9" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="82.8" y1="94.0" x2="87.2" y2="76.0" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="108.6" y1="92.6" x2="121.4" y2="77.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="138.8" y1="97.2" x2="151.2" y2="72.8" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="165.4" y1="89.8" x2="184.6" y2="80.2" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="193.9" y1="86.2" x2="216.1" y2="83.8" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="223.1" y1="90.9" x2="246.9" y2="79.1" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="14.6" y1="124.6" x2="35.4" y2="105.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="45.6" y1="128.4" x2="64.4" y2="101.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="88.7" y1="128.5" x2="81.3" y2="101.5" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="105.6" y1="115.9" x2="124.4" y2="114.1" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="140.3" y1="130.4" x2="149.7" y2="99.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="162.1" y1="112.5" x2="187.9" y2="117.5" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="190.5" y1="120.4" x2="219.5" y2="109.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="222.1" y1="117.6" x2="247.9" y2="112.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="19.2" y1="159.6" x2="30.8" y2="130.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="50.1" y1="161.2" x2="59.9" y2="128.8" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="84.4" y1="156.7" x2="85.6" y2="133.3" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="110.6" y1="153.3" x2="119.4" y2="136.7" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="130.1" y1="150.4" x2="159.9" y2="139.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="169.7" y1="151.5" x2="180.3" y2="138.5" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="190.7" y1="147.1" x2="219.3" y2="142.9" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="224.2" y1="147.0" x2="245.8" y2="143.0" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="26.6" y1="187.4" x2="23.4" y2="162.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="38.5" y1="179.2" x2="71.5" y2="170.8" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="74.7" y1="183.6" x2="95.3" y2="166.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="108.4" y1="180.0" x2="121.6" y2="170.0" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="132.5" y1="180.1" x2="157.5" y2="169.9" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="166.4" y1="178.8" x2="183.6" y2="171.2" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="196.5" y1="181.6" x2="213.5" y2="168.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="218.7" y1="178.2" x2="251.3" y2="171.8" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="19.1" y1="215.6" x2="30.9" y2="194.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="44.0" y1="211.4" x2="66.0" y2="198.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="72.5" y1="208.5" x2="97.5" y2="201.5" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="101.4" y1="204.5" x2="128.6" y2="205.5" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="134.4" y1="210.4" x2="155.6" y2="199.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="161.0" y1="201.3" x2="189.0" y2="208.7" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="188.5" y1="202.0" x2="221.5" y2="208.0" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="222.4" y1="206.5" x2="247.6" y2="203.5" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="16.1" y1="242.6" x2="33.9" y2="227.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="44.7" y1="243.3" x2="65.3" y2="226.7" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="77.7" y1="246.6" x2="92.3" y2="223.4" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="107.0" y1="237.9" x2="123.0" y2="232.1" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="131.2" y1="231.8" x2="158.8" y2="238.2" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="164.8" y1="230.4" x2="185.2" y2="239.6" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="197.4" y1="231.9" x2="212.6" y2="238.1" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="228.8" y1="229.1" x2="241.2" y2="240.9" stroke="#5ab0ff" stroke-width="2" marker-end="url(#asf)"/>
+<line x1="330" y1="10" x2="570" y2="10" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="330" y1="10" x2="330" y2="250" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="330" y1="70" x2="570" y2="70" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="390" y1="10" x2="390" y2="250" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="330" y1="130" x2="570" y2="130" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="450" y1="10" x2="450" y2="250" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="330" y1="190" x2="570" y2="190" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="510" y1="10" x2="510" y2="250" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="330" y1="250" x2="570" y2="250" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="570" y1="10" x2="570" y2="250" stroke="#9aa1ae" stroke-width="2"/>
+<line x1="360.0" y1="40.0" x2="372.5" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="40.0" x2="379.7" y2="20.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="40.0" x2="360.0" y2="17.9" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="40.0" x2="353.5" y2="33.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="40.0" x2="352.0" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="40.0" x2="355.3" y2="44.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="40.0" x2="360.0" y2="46.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="40.0" x2="364.6" y2="44.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="435.2" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="439.7" y2="20.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="420.0" y2="21.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="415.0" y2="35.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="411.1" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="416.4" y2="43.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="420.0" y2="47.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="40.0" x2="426.1" y2="46.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="503.6" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="496.4" y2="23.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="480.0" y2="28.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="475.6" y2="35.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="474.1" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="474.9" y2="45.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="480.0" y2="48.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="40.0" x2="486.0" y2="46.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="566.4" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="553.3" y2="26.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="540.0" y2="30.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="534.9" y2="34.9" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="530.7" y2="40.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="535.9" y2="44.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="540.0" y2="46.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="40.0" x2="551.4" y2="51.4" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="369.7" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="374.0" y2="86.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="360.0" y2="74.2" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="350.7" y2="90.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="352.4" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="355.8" y2="104.2" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="360.0" y2="109.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="100.0" x2="366.5" y2="106.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="428.3" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="436.2" y2="83.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="420.0" y2="73.4" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="411.7" y2="91.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="411.0" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="415.2" y2="104.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="420.0" y2="105.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="100.0" x2="424.6" y2="104.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="499.9" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="498.6" y2="81.4" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="480.0" y2="84.2" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="475.0" y2="95.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="472.9" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="475.0" y2="105.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="480.0" y2="109.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="100.0" x2="484.1" y2="104.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="561.2" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="559.5" y2="80.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="540.0" y2="86.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="533.0" y2="93.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="532.8" y2="100.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="533.1" y2="106.9" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="540.0" y2="109.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="100.0" x2="545.9" y2="105.9" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="371.1" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="378.2" y2="141.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="360.0" y2="134.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="352.2" y2="152.2" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="353.6" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="355.3" y2="164.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="360.0" y2="166.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="160.0" x2="363.8" y2="163.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="434.0" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="438.1" y2="141.9" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="420.0" y2="137.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="415.7" y2="155.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="410.5" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="414.0" y2="166.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="420.0" y2="169.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="160.0" x2="426.7" y2="166.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="504.7" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="498.7" y2="141.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="480.0" y2="150.2" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="473.8" y2="153.8" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="474.1" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="475.4" y2="164.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="480.0" y2="168.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="160.0" x2="486.4" y2="166.4" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="566.1" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="557.0" y2="143.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="540.0" y2="151.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="535.3" y2="155.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="533.7" y2="160.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="533.4" y2="166.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="540.0" y2="167.4" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="160.0" x2="550.3" y2="170.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="376.6" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="378.4" y2="201.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="360.0" y2="202.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="353.6" y2="213.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="354.1" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="353.7" y2="226.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="360.0" y2="229.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="360.0" y1="220.0" x2="366.4" y2="226.4" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="443.4" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="437.0" y2="203.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="420.0" y2="206.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="413.4" y2="213.4" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="414.8" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="415.5" y2="224.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="420.0" y2="226.3" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="420.0" y1="220.0" x2="426.1" y2="226.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="507.0" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="493.5" y2="206.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="480.0" y2="211.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="476.5" y2="216.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="474.7" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="476.0" y2="224.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="480.0" y2="225.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="480.0" y1="220.0" x2="489.6" y2="229.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="569.1" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="550.9" y2="209.1" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="540.0" y2="214.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="534.7" y2="214.7" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="533.4" y2="220.0" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="535.4" y2="224.6" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="540.0" y2="227.5" stroke="#f2b134" stroke-width="2.5"/>
+<line x1="540.0" y1="220.0" x2="555.6" y2="235.6" stroke="#f2b134" stroke-width="2.5"/>
+        <text x="130" y="280" fill="#5ab0ff" font-size="17" text-anchor="middle">gradients in a 16×16 patch</text>
+        <text x="450" y="280" fill="#f2b134" font-size="17" text-anchor="middle">4×4 cells × 8 orientations</text>
+        <text x="290" y="135" fill="#9aa1ae" font-size="28" text-anchor="middle">→</text>
+      </svg>
+      <p style="font-size:0.7em; margin:0">→ a 128-dimensional vector, normalised to unit length</p>
+    </div>
+    <div style="font-size:0.74em">
+      <p style="margin-top:0">SIFT (Lowe, 1999/2004) turns the neighbourhood of a keypoint into 128 numbers, in four steps:</p>
+      <ol style="margin:0 0 0 1.1em">
+        <li><b>the patch</b>: 16×16 samples around the keypoint, sized by its scale and turned by its orientation (previous slide), so both images give the <b>same physical patch</b></li>
+        <li><b>gradients</b> (blue arrows): at each sample, the direction and strength of the brightness change; a brightness offset does not change them</li>
+        <li><b>histograms</b>: split the patch into 4×4 cells; in each cell, every arrow adds its length to one of 8 direction bins (orange stars: the length of each ray is the bin). An edge that moves by a pixel stays in its cell: robust to small shifts and deformations</li>
+        <li><b>the vector</b>: 16 cells × 8 bins = 128 numbers, normalised to unit length: robust to contrast ($aI$ multiplies all gradients by $a$)</li>
+      </ol>
+      <p style="margin:0.4em 0 0">Two descriptors are compared by their Euclidean distance. "Detect, describe, match" used the same idea with 2×2 cells (32 numbers).</p>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>Descriptors: ORB <span class="optional-badge">optional</span></h2>
+  <svg viewBox="0 0 1170 400" style="width:100%; max-width:1170px; display:block; margin:0.2em auto 0; font-family:Inter, Arial, sans-serif">
+    <g>
+    <text x="0.0" y="18.0" fill="#f2b134" font-size="17" text-anchor="start" font-weight="bold">1. FAST: is it a corner?</text>
+    <image href="../../assets/lecture03/orb_fast.png" x="0" y="30" width="300" height="300" style="image-rendering:pixelated"/>
+    <rect x="141.5" y="111.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="161.5" y="111.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="181.5" y="131.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="201.5" y="151.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="201.5" y="171.5" width="17" height="17" fill="none" stroke="#9aa1ae" stroke-width="3"/>
+    <rect x="201.5" y="191.5" width="17" height="17" fill="none" stroke="#9aa1ae" stroke-width="3"/>
+    <rect x="181.5" y="211.5" width="17" height="17" fill="none" stroke="#9aa1ae" stroke-width="3"/>
+    <rect x="161.5" y="231.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="141.5" y="231.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="121.5" y="231.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="101.5" y="211.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="81.5" y="191.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="81.5" y="171.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="81.5" y="151.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="101.5" y="131.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="121.5" y="111.5" width="17" height="17" fill="none" stroke="#b28dff" stroke-width="3"/>
+    <rect x="141.5" y="171.5" width="17" height="17" fill="none" stroke="#ff6b6b" stroke-width="3"/>
+    <text x="0.0" y="352.0" fill="#9aa1ae" font-size="14" text-anchor="start">16 pixels on a circle around the centre (red):</text>
+    <text x="0.0" y="370.0" fill="#9aa1ae" font-size="14" text-anchor="start"><tspan fill="#5fd38d">brighter</tspan> / <tspan fill="#b28dff">darker</tspan> than it by a threshold, or similar (grey).</text>
+    <text x="0.0" y="388.0" fill="#9aa1ae" font-size="14" text-anchor="start">≥ 9 in a row brighter (or darker) → a corner. Here: 13 in a row.</text>
+    </g>
+    <g class="fragment" data-fragment-index="1">
+    <text x="380.0" y="18.0" fill="#f2b134" font-size="17" text-anchor="start" font-weight="bold">2. BRIEF: one bit per pair of pixels</text>
+    <image href="../../assets/lecture03/orb_brief.png" x="380" y="30" width="279" height="279" style="image-rendering:pixelated"/>
+    <line x1="528.5" y1="241.5" x2="465.5" y2="223.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="528.5" y1="241.5" x2="465.5" y2="223.5" stroke="#5ab0ff" stroke-width="2.2"/>
+    <circle cx="528.5" cy="241.5" r="4" fill="#5ab0ff" stroke="#15171c"/><rect x="461.5" y="219.5" width="8" height="8" fill="#5ab0ff" stroke="#15171c"/>
+    <line x1="501.5" y1="151.5" x2="627.5" y2="178.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="501.5" y1="151.5" x2="627.5" y2="178.5" stroke="#f2b134" stroke-width="2.2"/>
+    <circle cx="501.5" cy="151.5" r="4" fill="#f2b134" stroke="#15171c"/><rect x="623.5" y="174.5" width="8" height="8" fill="#f2b134" stroke="#15171c"/>
+    <line x1="519.5" y1="214.5" x2="582.5" y2="169.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="519.5" y1="214.5" x2="582.5" y2="169.5" stroke="#f2b134" stroke-width="2.2"/>
+    <circle cx="519.5" cy="214.5" r="4" fill="#f2b134" stroke="#15171c"/><rect x="578.5" y="165.5" width="8" height="8" fill="#f2b134" stroke="#15171c"/>
+    <line x1="555.5" y1="115.5" x2="501.5" y2="142.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="555.5" y1="115.5" x2="501.5" y2="142.5" stroke="#f2b134" stroke-width="2.2"/>
+    <circle cx="555.5" cy="115.5" r="4" fill="#f2b134" stroke="#15171c"/><rect x="497.5" y="138.5" width="8" height="8" fill="#f2b134" stroke="#15171c"/>
+    <line x1="447.5" y1="88.5" x2="429.5" y2="160.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="447.5" y1="88.5" x2="429.5" y2="160.5" stroke="#5ab0ff" stroke-width="2.2"/>
+    <circle cx="447.5" cy="88.5" r="4" fill="#5ab0ff" stroke="#15171c"/><rect x="425.5" y="156.5" width="8" height="8" fill="#5ab0ff" stroke="#15171c"/>
+    <line x1="510.5" y1="151.5" x2="519.5" y2="97.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="510.5" y1="151.5" x2="519.5" y2="97.5" stroke="#f2b134" stroke-width="2.2"/>
+    <circle cx="510.5" cy="151.5" r="4" fill="#f2b134" stroke="#15171c"/><rect x="515.5" y="93.5" width="8" height="8" fill="#f2b134" stroke="#15171c"/>
+    <line x1="519.5" y1="178.5" x2="564.5" y2="124.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="519.5" y1="178.5" x2="564.5" y2="124.5" stroke="#5ab0ff" stroke-width="2.2"/>
+    <circle cx="519.5" cy="178.5" r="4" fill="#5ab0ff" stroke="#15171c"/><rect x="560.5" y="120.5" width="8" height="8" fill="#5ab0ff" stroke="#15171c"/>
+    <line x1="501.5" y1="61.5" x2="492.5" y2="43.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="501.5" y1="61.5" x2="492.5" y2="43.5" stroke="#5ab0ff" stroke-width="2.2"/>
+    <circle cx="501.5" cy="61.5" r="4" fill="#5ab0ff" stroke="#15171c"/><rect x="488.5" y="39.5" width="8" height="8" fill="#5ab0ff" stroke="#15171c"/>
+    <line x1="438.5" y1="232.5" x2="393.5" y2="214.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="438.5" y1="232.5" x2="393.5" y2="214.5" stroke="#f2b134" stroke-width="2.2"/>
+    <circle cx="438.5" cy="232.5" r="4" fill="#f2b134" stroke="#15171c"/><rect x="389.5" y="210.5" width="8" height="8" fill="#f2b134" stroke="#15171c"/>
+    <line x1="537.5" y1="151.5" x2="546.5" y2="196.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="537.5" y1="151.5" x2="546.5" y2="196.5" stroke="#f2b134" stroke-width="2.2"/>
+    <circle cx="537.5" cy="151.5" r="4" fill="#f2b134" stroke="#15171c"/><rect x="542.5" y="192.5" width="8" height="8" fill="#f2b134" stroke="#15171c"/>
+    <line x1="573.5" y1="160.5" x2="483.5" y2="133.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="573.5" y1="160.5" x2="483.5" y2="133.5" stroke="#5ab0ff" stroke-width="2.2"/>
+    <circle cx="573.5" cy="160.5" r="4" fill="#5ab0ff" stroke="#15171c"/><rect x="479.5" y="129.5" width="8" height="8" fill="#5ab0ff" stroke="#15171c"/>
+    <line x1="465.5" y1="169.5" x2="474.5" y2="232.5" stroke="#15171c" stroke-width="4.5"/>
+    <line x1="465.5" y1="169.5" x2="474.5" y2="232.5" stroke="#5ab0ff" stroke-width="2.2"/>
+    <circle cx="465.5" cy="169.5" r="4" fill="#5ab0ff" stroke="#15171c"/><rect x="470.5" y="228.5" width="8" height="8" fill="#5ab0ff" stroke="#15171c"/>
+    <text x="380.0" y="330.0" fill="#9aa1ae" font-size="14" text-anchor="start">pair i: is pixel ● a<tspan baseline-shift="sub" font-size="0.7em">i</tspan> darker than ■ b<tspan baseline-shift="sub" font-size="0.7em">i</tspan>?</text>
+    <text x="380.0" y="350.0" fill="#9aa1ae" font-size="14" text-anchor="start">the first 12 of 256 fixed pairs: <tspan fill="#5ab0ff">0</tspan><tspan fill="#f2b134">1</tspan><tspan fill="#f2b134">1</tspan><tspan fill="#f2b134">1</tspan><tspan fill="#5ab0ff">0</tspan><tspan fill="#f2b134">1</tspan><tspan fill="#5ab0ff">0</tspan><tspan fill="#5ab0ff">0</tspan><tspan fill="#f2b134">1</tspan><tspan fill="#f2b134">1</tspan><tspan fill="#5ab0ff">0</tspan><tspan fill="#5ab0ff">0</tspan></text>
+    <text x="380.0" y="370.0" fill="#9aa1ae" font-size="14" text-anchor="start">256 pairs → 256 bits = 32 bytes</text>
+    </g>
+    <g class="fragment" data-fragment-index="2">
+    <text x="720.0" y="18.0" fill="#f2b134" font-size="17" text-anchor="start" font-weight="bold">3. compare: count the different bits</text>
+    <text x="720.0" y="52.0" fill="#e7e9ee" font-size="14" text-anchor="start">photo 1, the point on the left:</text>
+    <text x="720.0" y="70.0" fill="#e7e9ee" font-size="16" text-anchor="start" font-family="monospace">01110100110010010010111000101010…</text>
+    <text x="720.0" y="112.0" fill="#e7e9ee" font-size="14" text-anchor="start">photo 2, the same point:</text>
+    <text x="720.0" y="130.0" fill="#e7e9ee" font-size="16" text-anchor="start" font-family="monospace">011101001100100100101110<tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">1</tspan>101010…</text>
+    <text x="720.0" y="172.0" fill="#e7e9ee" font-size="14" text-anchor="start">photo 1, another point:</text>
+    <text x="720.0" y="190.0" fill="#e7e9ee" font-size="16" text-anchor="start" font-family="monospace"><tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">0</tspan>1<tspan fill="#ff6b6b">0</tspan><tspan fill="#ff6b6b">1</tspan>1<tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">0</tspan><tspan fill="#ff6b6b">0</tspan>001<tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">1</tspan>1<tspan fill="#ff6b6b">1</tspan>01<tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">0</tspan><tspan fill="#ff6b6b">0</tspan><tspan fill="#ff6b6b">0</tspan><tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">1</tspan>0<tspan fill="#ff6b6b">0</tspan>0<tspan fill="#ff6b6b">0</tspan><tspan fill="#ff6b6b">1</tspan><tspan fill="#ff6b6b">0</tspan><tspan fill="#ff6b6b">1</tspan>…</text>
+    <text x="720.0" y="232.0" fill="#9aa1ae" font-size="14" text-anchor="start">first 32 of 256 bits; red: differs from the top row</text>
+    <rect x="720" y="252" width="440" height="88" rx="8" fill="none" stroke="#f2b134" stroke-width="2"/>
+    <text x="734.0" y="280.0" fill="#e7e9ee" font-size="16" text-anchor="start">Hamming distance (all 256 bits):</text>
+    <text x="734.0" y="304.0" fill="#e7e9ee" font-size="16" text-anchor="start">same point <tspan fill="#5fd38d" font-weight="bold">21</tspan>,  another point <tspan fill="#ff6b6b" font-weight="bold">137</tspan></text>
+    <text x="734.0" y="326.0" fill="#9aa1ae" font-size="14" text-anchor="start">computed as popcount(a XOR b): a few instructions</text>
+    </g>
+  </svg>
+  <p style="font-size:0.66em; margin:0.4em 0 0">ORB (Rublee et al., 2011) = oriented FAST + rotated BRIEF: FAST on an image pyramid (scale), the best corners by the Harris score; an orientation from the patch's brightness centroid, and the pairs are turned by it (photo 2 is turned by 4°). Only comparisons, 32 bytes per point, distance by XOR and popcount: one to two orders of magnitude faster than SIFT. The feature of ORB-SLAM.</p>
+  <p class="credit">photo: crop of “Canary Wharf”, Andreas Mischok, <a href="https://polyhaven.com/a/canary_wharf">Poly Haven</a> (CC0)</p>
+</section>
+
+<section>
+  <h2>Matching</h2>
+  <div class="cols" style="grid-template-columns: 1fr auto; gap:1.2em">
+    <div style="font-size:0.85em">
+      <ul>
+        <li>for each descriptor in image 1: the <b>nearest</b> descriptor in image 2</li>
+        <li>repeated structures (windows, tiles) have several near-identical neighbours → <b>ratio test</b> (Lowe): accept only if
+          <div class="box key" style="display:table; margin:0.3em auto">$$\frac{d_1}{d_2} < 0.8$$</div>
+          $d_1, d_2$: distances to the nearest and the second nearest</li>
+        <li><b>mutual</b> check: also the nearest in the other direction</li>
+        <li>then RANSAC on the geometry (a homography, or $F$ in Part 3)</li>
+      </ul>
+      <p class="small" style="font-size:0.8em"><code>cv2.BFMatcher().knnMatch(d1, d2, k=2)</code>; many points: approximate nearest neighbours (FLANN, FAISS).</p>
+    </div>
+    <svg viewBox="0 0 330 330" style="width:340px; display:block; font-family:Inter, Arial, sans-serif">
+      <rect x="0" y="0" width="330" height="155" rx="8" fill="#1b1d22" stroke="#3a3f4b"/>
+      <rect x="0" y="175" width="330" height="155" rx="8" fill="#1b1d22" stroke="#3a3f4b"/>
+      <circle cx="80" cy="80" r="7" fill="#f2b134"/><text x="62" y="110" fill="#f2b134" font-size="15">query</text>
+      <circle cx="120" cy="70" r="6" fill="#5fd38d"/><line x1="80" y1="80" x2="120" y2="70" stroke="#5fd38d" stroke-width="2"/>
+      <circle cx="270" cy="50" r="6" fill="#9aa1ae"/><line x1="80" y1="80" x2="270" y2="50" stroke="#9aa1ae" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <circle cx="240" cy="120" r="6" fill="#9aa1ae"/><circle cx="210" cy="30" r="6" fill="#9aa1ae"/>
+      <text x="150" y="146" fill="#5fd38d" font-size="15">d₁/d₂ ≈ 0.2: accept</text>
+      <circle cx="80" cy="255" r="7" fill="#f2b134"/>
+      <circle cx="140" cy="240" r="6" fill="#ff6b6b"/><line x1="80" y1="255" x2="140" y2="240" stroke="#ff6b6b" stroke-width="2"/>
+      <circle cx="132" cy="285" r="6" fill="#ff6b6b"/><line x1="80" y1="255" x2="132" y2="285" stroke="#ff6b6b" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <circle cx="260" cy="210" r="6" fill="#9aa1ae"/><circle cx="280" cy="290" r="6" fill="#9aa1ae"/>
+      <text x="150" y="320" fill="#ff6b6b" font-size="15">d₁/d₂ ≈ 0.9: reject</text>
+    </svg>
+  </div>
+</section>
+
+<section>
+  <h2>Features today</h2>
+  <table style="font-size:0.66em; width:100%">
+    <tr><th></th><th>examples</th><th>idea</th></tr>
+    <tr><td><b>hand-designed</b></td><td>Harris (1988), SIFT (2004), SURF (2006), ORB (2011), AKAZE (2013)</td><td>gradients and intensity tests; fast, well understood, still the default in real-time SLAM</td></tr>
+    <tr><td><b>learned detector + descriptor</b></td><td>SuperPoint (2018), D2-Net, R2D2 (2019), DISK (2020), ALIKED (2023), XFeat (2024)</td><td>a CNN predicts keypoints and descriptors; trained on homographic warps or on images with known geometry</td></tr>
+    <tr><td><b>learned matcher</b></td><td>SuperGlue (2020), LightGlue (2023)</td><td>attention over both images' keypoints together: matches by context, not only by the nearest descriptor</td></tr>
+    <tr><td><b>detector-free (dense)</b></td><td>LoFTR (2021), RoMa (2024)</td><td>match everywhere, also in weak texture</td></tr>
+    <tr><td><b>3D foundation models</b></td><td>DUSt3R, MASt3R (2024), VGGT (2025)</td><td>a transformer predicts the 3D points (and cameras) of image pairs or sets directly; matches come as a by-product</td></tr>
+  </table>
+  <div class="cols" style="font-size:0.72em; margin-top:0.4em">
+    <p style="margin:0"><b>In practice</b>: ORB or SIFT when speed matters and the views are similar (odometry); SuperPoint + LightGlue for large changes of viewpoint, illumination or season (e.g. COLMAP / hloc pipelines).</p>
+    <p style="margin:0">Learned features fail differently: out of their training distribution, or when the GPU budget is the limit. RANSAC stays in every pipeline.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 3</div>
+  <h1>Two-view geometry</h1>
+  <p class="subtitle" style="color:var(--fg-dim)">a general pair of cameras, a general scene</p>
+</section>
+
+<section>
+  <h2>The problem</h2>
+  <div class="cols">
+    <div>
+      <p><b>Given</b>: two images of a 3D scene from a camera that moved (rotated <b>and</b> translated); matched features; usually $K$.</p>
+      <p><b>Find</b>: the relative pose $R, \mathbf t$ between the two views (the camera as a motion sensor), and then the 3D points.</p>
+      <div class="question" style="font-size:0.85em">No homography relates the images (parallax). Do the matches constrain anything?</div>
+    </div>
+    <div class="box">
+      <h3>Compared with lecture 2</h3>
+      <ul style="font-size:0.85em">
+        <li><b>PnP</b>: known 3D points → pose. Here: no 3D points.</li>
+        <li><b>rectified stereo</b>: known pose, the match lies on the <b>same row</b>. Here: unknown pose, and the match lies on a <b>line</b>: the epipolar line.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Epipolar geometry: the terms</h2>
+  <div class="cols" style="grid-template-columns: 1.25fr 1fr; gap:1em">
+    <svg viewBox="55 70 490 390" style="width:100%; max-width:640px; display:block; font-family:Inter, Arial, sans-serif">
+      <g>
+      <polygon points="236.5,444.9 138.4,341.6 93.2,231.5 192.5,319.1" fill="#5ab0ff" fill-opacity="0.12" stroke="#5ab0ff" stroke-width="2"/>
+      <polygon points="461.6,341.6 363.5,444.9 407.5,319.1 506.8,231.5" fill="#5fd38d" fill-opacity="0.12" stroke="#5fd38d" stroke-width="2"/>
+      <circle cx="70.5" cy="386.7" r="6" fill="#e7e9ee"/>
+      <circle cx="529.5" cy="386.7" r="6" fill="#e7e9ee"/>
+      <text x="56.5" y="414.7" fill="#e7e9ee" font-size="17" font-style="italic" text-anchor="start">O<tspan baseline-shift="sub" font-size="0.7em">l</tspan></text>
+      <text x="525.5" y="414.7" fill="#e7e9ee" font-size="17" font-style="italic" text-anchor="start">O<tspan baseline-shift="sub" font-size="0.7em">r</tspan></text>
+      <text x="93.2" y="221.5" fill="#5ab0ff" font-size="15" text-anchor="middle">left image</text>
+      <text x="506.8" y="221.5" fill="#5fd38d" font-size="15" text-anchor="middle">right image</text>
+      </g>
+      <g class="fragment" data-fragment-index="1">
+      <line x1="70.5" y1="386.7" x2="529.5" y2="386.7" stroke="#9aa1ae" stroke-width="2.5"/>
+      <text x="270.0" y="408.7" fill="#9aa1ae" font-size="15" text-anchor="start">baseline</text>
+      <circle cx="204.6" cy="386.7" r="6" fill="#f2b134"/>
+      <circle cx="395.4" cy="386.7" r="6" fill="#f2b134"/>
+      <text x="196.6" y="374.7" fill="#f2b134" font-size="19" font-style="italic" text-anchor="start">e<tspan baseline-shift="sub" font-size="0.7em">l</tspan></text>
+      <text x="391.4" y="374.7" fill="#f2b134" font-size="19" font-style="italic" text-anchor="start">e<tspan baseline-shift="sub" font-size="0.7em">r</tspan></text>
+      </g>
+      <g class="fragment" data-fragment-index="2">
+      <polygon points="70.5,386.7 529.5,386.7 321.1,109.2" fill="#b28dff" fill-opacity="0.13" stroke="none"/>
+      <line x1="70.5" y1="386.7" x2="321.1" y2="109.2" stroke="#f2b134" stroke-width="1.6"/>
+      <line x1="529.5" y1="386.7" x2="321.1" y2="109.2" stroke="#f2b134" stroke-width="1.6"/>
+      <circle cx="321.1" cy="109.2" r="7" fill="#ff6b6b"/>
+      <text x="331.1" y="103.2" fill="#ff6b6b" font-size="21" font-style="italic" text-anchor="start">P</text>
+      <circle cx="141.2" cy="308.4" r="5" fill="#ff6b6b"/>
+      <circle cx="465.0" cy="300.8" r="5" fill="#ff6b6b"/>
+      <text x="115.2" y="310.4" fill="#ff6b6b" font-size="17" font-style="italic" text-anchor="start">p<tspan baseline-shift="sub" font-size="0.7em">l</tspan></text>
+      <text x="475.0" y="306.8" fill="#ff6b6b" font-size="17" font-style="italic" text-anchor="start">p<tspan baseline-shift="sub" font-size="0.7em">r</tspan></text>
+      <text x="309.0" y="288.6" fill="#b28dff" font-size="15" text-anchor="middle">epipolar plane</text>
+      </g>
+      <g class="fragment" data-fragment-index="3">
+      <line x1="224.9" y1="411.8" x2="107.9" y2="267.2" stroke="#b28dff" stroke-width="3.2"/>
+      <line x1="375.1" y1="411.8" x2="492.1" y2="267.2" stroke="#b28dff" stroke-width="3.2"/>
+      <text x="91.9" y="267.2" fill="#b28dff" font-size="18" font-style="italic" text-anchor="start">l<tspan baseline-shift="sub" font-size="0.7em">l</tspan></text>
+      <text x="498.1" y="267.2" fill="#b28dff" font-size="18" font-style="italic" text-anchor="start">l<tspan baseline-shift="sub" font-size="0.7em">r</tspan></text>
+      <circle cx="207.8" cy="234.7" r="3.5" fill="#ff6b6b"/>
+      <circle cx="432.5" cy="340.9" r="3.5" fill="#ff6b6b"/>
+      <line x1="529.5" y1="386.7" x2="207.8" y2="234.7" stroke="#ff6b6b" stroke-width="1" stroke-dasharray="3 4"/>
+      <circle cx="269.0" cy="166.9" r="3.5" fill="#ff6b6b"/>
+      <circle cx="449.8" cy="319.5" r="3.5" fill="#ff6b6b"/>
+      <line x1="529.5" y1="386.7" x2="269.0" y2="166.9" stroke="#ff6b6b" stroke-width="1" stroke-dasharray="3 4"/>
+      </g>
+      
+    </svg>
+    <div style="font-size:0.74em">
+      <p style="margin-top:0">Two cameras: centres $O_l$, $O_r$, and their image planes.</p>
+      <p class="fragment" data-fragment-index="1">The <b>baseline</b> joins the centres. Where it pierces the image planes: the <b style="color:#f2b134">epipoles</b> $\mathbf e_l$, $\mathbf e_r$. Equivalently, $\mathbf e_r$ is the <b>image of the left camera's centre</b> in the right camera, and vice versa.</p>
+      <p class="fragment" data-fragment-index="2">A scene point $P$ and the two centres span a plane: the <b style="color:#b28dff">epipolar plane</b> of $P$. Both rays, and both pixels $\mathbf p_l$, $\mathbf p_r$, lie in it.</p>
+      <p class="fragment" data-fragment-index="3">The plane cuts the images in the <b style="color:#b28dff">epipolar lines</b> $\mathbf l_l$, $\mathbf l_r$. Wherever $P$ is on the ray of $\mathbf p_l$ (unknown depth), its image lies on $\mathbf l_r$: the match of $\mathbf p_l$ is on <b>one line</b>.</p>
+      <p class="fragment" data-fragment-index="4">Every epipolar plane contains the baseline (the planes turn about it like the pages of a book), so <b>every epipolar line passes through the epipole</b>.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Epipolar geometry in 3D</h2>
+  <div class="box key" style="font-size:0.66em; margin:0 0 0.4em; padding:0.3em 0.7em"><b>Why it matters</b>: matching becomes a 1D search along the line, and wrong matches can be rejected; the line depends only on the relative pose $R, \mathbf t$ (and $K$), so every correct match is a <b>measurement of the camera motion</b> (Part 4).</div>
+  <div style="font-size:0.9em"><div data-widget="epipolar" data-config='{"width":600,"height":290}'></div></div>
+</section>
+
+<section>
+  <h2>The epipolar constraint</h2>
+  <div class="cols" style="grid-template-columns: auto 1fr; gap:1em">
+    <svg viewBox="0 0 470 300" style="width:430px; display:block; font-family:Inter, Arial, sans-serif">
+      <defs><marker id="aep" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+      <polygon points="70,250 400,250 240,50" fill="#b28dff" fill-opacity="0.14" stroke="none"/>
+      <line x1="400" y1="250" x2="76" y2="250" stroke="#5fd38d" stroke-width="3" marker-end="url(#aep)"/>
+      <line x1="400" y1="250" x2="245" y2="56" stroke="#f2b134" stroke-width="3" marker-end="url(#aep)"/>
+      <line x1="70" y1="250" x2="235" y2="56" stroke="#5ab0ff" stroke-width="3" marker-end="url(#aep)"/>
+      <circle cx="240" cy="50" r="7" fill="#ff6b6b"/><text x="252" y="44" fill="#ff6b6b" font-size="22" font-style="italic">P</text>
+      <circle cx="70" cy="250" r="6" fill="#e7e9ee"/><text x="40" y="282" fill="#e7e9ee" font-size="18">O<tspan baseline-shift="sub" font-size="0.72em">l</tspan></text>
+      <circle cx="400" cy="250" r="6" fill="#e7e9ee"/><text x="400" y="282" fill="#e7e9ee" font-size="18">O<tspan baseline-shift="sub" font-size="0.72em">r</tspan></text>
+      <text x="220" y="275" fill="#5fd38d" font-size="20" font-style="italic" font-weight="bold">t</text>
+      <text x="330" y="140" fill="#f2b134" font-size="20"><tspan font-style="italic" font-weight="bold">x</tspan><tspan baseline-shift="sub" font-size="0.72em" font-style="italic">r</tspan></text>
+      <text x="100" y="140" fill="#5ab0ff" font-size="20"><tspan font-style="italic">R</tspan><tspan font-style="italic" font-weight="bold">x</tspan><tspan baseline-shift="sub" font-size="0.72em" font-style="italic">l</tspan></text>
+      <text x="200" y="210" fill="#b28dff" font-size="16">epipolar plane</text>
+    </svg>
+    <div style="font-size:0.85em">
+      <p style="margin-top:0">Point in the left camera frame $\mathbf x_l$, in the right frame $\mathbf x_r = R\,\mathbf x_l + \mathbf t$ (all vectors in the <b>right</b> camera's axes):</p>
+      <ul>
+        <li>$\mathbf t$: from $O_r$ to $O_l$ (put $\mathbf x_l = \mathbf 0$)</li>
+        <li>$\mathbf x_r$: from $O_r$ to $P$; $\;R\mathbf x_l = \mathbf x_r - \mathbf t$: from $O_l$ to $P$</li>
+      </ul>
+      <p>All three lie in the epipolar plane. $\mathbf t \times R\mathbf x_l$ is perpendicular to both $\mathbf t$ and $R\mathbf x_l$, so it is the <b>normal of the epipolar plane</b>, and $\mathbf x_r$, lying in the plane, is perpendicular to it:</p>
+      <p>$$\mathbf x_r^\top\,(\mathbf t \times R\,\mathbf x_l) = 0 \quad\Longrightarrow\quad \mathbf x_r^\top\, \underbrace{[\mathbf t]_\times R}_{E}\, \mathbf x_l = 0$$</p>
+      <p style="font-size:0.85em">$$[\mathbf t]_\times = \begin{bmatrix} 0 & -t_z & t_y\\ t_z & 0 & -t_x\\ -t_y & t_x & 0\end{bmatrix}, \qquad [\mathbf t]_\times \mathbf a = \mathbf t \times \mathbf a$$</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The essential matrix $E = [\mathbf t]_\times R$</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <div class="box key" style="display:table; margin:0 auto 0.4em">$$\mathbf x_r^\top E\, \mathbf x_l = 0$$</div>
+      <ul>
+        <li><b>no depth needed</b>: we know only the pixel, not the 3D point $\mathbf x_l$. But replacing $\mathbf x_l$ by $\lambda\mathbf x_l$ multiplies the left side by $\lambda$, and $0$ stays $0$. So any point on the ray will do, e.g. the one at depth 1: $\hat{\mathbf x}_l = K^{-1}\tilde{\mathbf u}_l = (x_l/z_l,\ y_l/z_l,\ 1)$; the same for $\mathbf x_r$: $\;\hat{\mathbf x}_r^\top E\,\hat{\mathbf x}_l = 0$</li>
+        <li>$E\mathbf x_l$ is the epipolar line in the right (normalised) image: one equation, one line</li>
+        <li>$E$ is defined up to scale; $\det E = 0$ (rank 2)</li>
+        <li><b>5 DoF</b>: 3 (rotation) + 3 (translation) − 1 (scale)</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Example: rectified stereo</h3>
+      <p style="margin:0">Right camera at $(b, 0, 0)$, same orientation: $R = I$, $\mathbf t = (-b, 0, 0)$.</p>
+      <p>$$E = \begin{bmatrix} 0 & 0 & 0\\ 0 & 0 & b\\ 0 & -b & 0\end{bmatrix}, \quad \mathbf x_r^\top E\,\mathbf x_l = b\,(y_r z_l - z_r y_l) = 0$$</p>
+      <p style="margin:0">$\Rightarrow\; y_r / z_r = y_l / z_l$: the <b>same row</b>, as in lecture 2.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Pixels: the fundamental matrix $F$</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <p style="margin-bottom:0">Pixels: $\tilde{\mathbf u}_l \equiv K_l\mathbf x_l$, $\tilde{\mathbf u}_r \equiv K_r\mathbf x_r$. Substitute $\mathbf x_l \equiv K_l^{-1}\tilde{\mathbf u}_l$, $\mathbf x_r \equiv K_r^{-1}\tilde{\mathbf u}_r$:</p>
+      <p>$$\tilde{\mathbf u}_r^\top \underbrace{K_r^{-\top} E\, K_l^{-1}}_{F}\, \tilde{\mathbf u}_l = 0$$</p>
+      <ul>
+        <li>$F$ needs <b>no calibration</b>: estimated from pixel matches alone</li>
+        <li><b>7 DoF</b>: up to scale, $\det F = 0$</li>
+        <li>epipolar line in the right image: $\mathbf l_r = F\tilde{\mathbf u}_l$, i.e. $l_1 u + l_2 v + l_3 = 0$</li>
+        <li>epipoles: $F\,\tilde{\mathbf e}_l = \mathbf 0$, $\;F^\top\tilde{\mathbf e}_r = \mathbf 0$ (every epipolar line passes through them)</li>
+      </ul>
+    </div>
+    <div class="box key">
+      <h3>Known $K$ (a robot's camera)</h3>
+      <p style="margin:0">$E = K_r^\top F K_l$: estimate $E$ directly from normalised points. Fewer DoF (5), more stable, and $E$ contains the pose.</p>
+      <h3 style="margin-top:0.6em">Unknown $K$ (photos from the internet)</h3>
+      <p style="margin:0">$F$ only; the reconstruction is then determined up to a projective transformation (calibration adds the metric structure).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Estimating $F$: the eight-point algorithm</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <p style="margin-bottom:0">Each match $(u_l, v_l) \leftrightarrow (u_r, v_r)$ gives one equation, <b>linear</b> in the entries of $F$:</p>
+      <p style="font-size:0.86em">$$\begin{bmatrix} u_r u_l & u_r v_l & u_r & v_r u_l & v_r v_l & v_r & u_l & v_l & 1\end{bmatrix}\mathbf f = 0$$</p>
+      <ol>
+        <li>stack $n \ge 8$ matches: $A\mathbf f = \mathbf 0$, $\min\|A\mathbf f\|$ s.t. $\|\mathbf f\| = 1$ (third time today)</li>
+        <li><b>enforce rank 2</b>: SVD $F = U\Sigma V^\top$, set $\sigma_3 = 0$</li>
+        <li>normalise the pixel coordinates first (Hartley, "In defense of the eight-point algorithm", 1997)</li>
+      </ol>
+    </div>
+    <div class="box">
+      <h3>With outliers and known $K$</h3>
+      <ul style="font-size:0.9em; margin:0 0 0 1.1em">
+        <li>RANSAC with the <b>minimal</b> solver: 7 points for $F$, <b>5 points</b> for $E$ (Nistér, 2004)</li>
+        <li>inlier test: distance of $\tilde{\mathbf u}_r$ from the line $F\tilde{\mathbf u}_l$ (Sampson distance)</li>
+        <li><code>cv2.findFundamentalMat(p1, p2, cv2.FM_RANSAC)</code><br><code>cv2.findEssentialMat(p1, p2, K, cv2.RANSAC)</code></li>
+      </ul>
+      <p style="font-size:0.85em; margin:0.4em 0 0">With 50% outliers ($p = 0.99$): $s = 8$ needs 1177 iterations, $s = 5$ only 146.</p>
+    </div>
+  </div>
+</section>
+
+<section class="optional">
+  <h2>From $E$ to the pose <span class="optional-badge">optional</span></h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <p style="margin:0 0 0.2em">SVD: $\;E = U\,\operatorname{diag}(1, 1, 0)\,V^\top$ (with $\det U = \det V = +1$), and</p>
+      <p style="margin:0">$$W = \begin{bmatrix} 0 & -1 & 0\\ 1 & 0 & 0\\ 0 & 0 & 1\end{bmatrix}, \qquad \begin{aligned} R &= U W V^\top \ \text{ or } \ U W^\top V^\top\\ \mathbf t &= \pm\,\mathbf u_3\end{aligned}$$</p>
+      <p style="margin:0; font-size:0.85em">$\mathbf u_3$: the third column of $U$ (the null vector of $E^\top$).</p>
+      <ul>
+        <li>so $E$ gives $\mathbf t$ (up to sign and scale) and two possible $R$: <b>four</b> candidate poses</li>
+        <li>only one puts the triangulated points <b>in front of both cameras</b> (positive depth, "cheirality")</li>
+        <li>as with P3P's four solutions (lecture 2): an extra check picks the right one</li>
+      </ul>
+      <p><code>cv2.recoverPose(E, p1, p2, K)</code> → $R$, $\mathbf t$ with $\|\mathbf t\| = 1$.</p>
+    </div>
+    <div class="box key">
+      <h3>Triangulation</h3>
+      <p style="margin:0">Known $P_l = K[I\,|\,\mathbf 0]$, $P_r = K[R\,|\,\mathbf t]$ and a match: intersect the two rays. With noise they miss each other:</p>
+      <ul style="font-size:0.9em; margin:0.3em 0 0 1.1em">
+        <li>DLT: $\tilde{\mathbf u} \times P\tilde{\mathbf X} = \mathbf 0$, two equations per view, $A\tilde{\mathbf X} = \mathbf 0$ (fourth time)</li>
+        <li>better: minimise the reprojection error</li>
+        <li>poor when the rays are almost parallel (small baseline, far point): lecture 2, $\Delta z \sim z^2$</li>
+      </ul>
+      <p style="font-size:0.85em; margin:0.3em 0 0"><code>cv2.triangulatePoints(P1, P2, p1, p2)</code></p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The missing scale</h2>
+  <div class="cols" style="grid-template-columns: auto 1fr; gap:1.4em; font-size:0.9em">
+    <div>
+    <svg viewBox="0 0 260 230" style="width:330px; display:block; font-family:Inter, Arial, sans-serif">
+      <line x1="60" y1="200" x2="124" y2="24" stroke="#f2b134" stroke-width="1.5"/>
+      <line x1="100" y1="200" x2="92" y2="112" stroke="#5ab0ff" stroke-width="1.5"/>
+      <line x1="140" y1="200" x2="124" y2="24" stroke="#b28dff" stroke-width="1.5"/>
+      <line x1="60" y1="200" x2="148" y2="100" stroke="#f2b134" stroke-width="1.2" stroke-dasharray="4 4"/>
+      <line x1="100" y1="200" x2="104" y2="150" stroke="#5ab0ff" stroke-width="1.2" stroke-dasharray="4 4"/>
+      <line x1="140" y1="200" x2="148" y2="100" stroke="#b28dff" stroke-width="1.2" stroke-dasharray="4 4"/>
+      <polygon points="80,150 104,150 104,126 92,112 80,126" fill="#5ab0ff" fill-opacity="0.3" stroke="#5ab0ff" stroke-width="2"/>
+      <polygon points="100,100 148,100 148,52 124,24 100,52" fill="#b28dff" fill-opacity="0.2" stroke="#b28dff" stroke-width="2"/>
+      <circle cx="60" cy="200" r="6" fill="#e7e9ee"/><circle cx="100" cy="200" r="6" fill="#5ab0ff"/><circle cx="140" cy="200" r="6" fill="#b28dff"/>
+      <text x="40" y="225" fill="#e7e9ee" font-size="14">cam 1</text>
+      <text x="88" y="225" fill="#5ab0ff" font-size="14">cam 2</text>
+      <text x="132" y="225" fill="#b28dff" font-size="14">cam 2 (×2)</text>
+    </svg>
+    <div class="box key" style="font-size:0.8em; margin-top:0.5em; max-width:330px">
+        <h3>Where the scale comes from</h3>
+        <ul style="margin:0 0 0 1.1em">
+          <li>a stereo pair: the known baseline (lecture 2)</li>
+          <li>an IMU (visual-inertial odometry: accelerations are metric)</li>
+          <li>wheel odometry, a known object size, a depth sensor</li>
+        </ul>
+      </div>
+    </div>
+    <div style="font-size:0.85em">
+      <p>Scale the scene <b>and</b> the camera motion by the same factor $k$: every ray keeps its direction, the images are identical.</p>
+      <ul>
+        <li>$E$ (and the pose from it) is known only up to scale: $\|\mathbf t\| = 1$ by convention</li>
+        <li>a single moving camera cannot tell a toy house 1 m away from a real one 20 m away</li>
+      </ul>
+      <div class="box" style="margin-bottom:0.5em">
+        <h3>Film makers rely on it</h3>
+        <p style="margin:0">Miniatures: spaceships, cities and disasters were filmed as models with a small camera moving slowly (motion control), and the audience could not tell. The "bigatures" of <i>The Lord of the Rings</i>: Minas Tirith at 1/72 scale. What gives a miniature away is not geometry but physics and optics (water, fire, falling objects, a shallow depth of field), so miniatures are filmed at a higher frame rate, about $\sqrt{1/\text{scale}}$ times normal, and played back slowed down.</p>
+        <p class="small" style="margin:0.2em 0 0">Video: <a href="https://www.youtube.com/watch?v=T6NJ3EZpBRA">Behind the biggest movies' tiniest sets</a> (ScreenRant)</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="section-slide">
+  <div class="num">Part 4</div>
+  <h1>Visual odometry</h1>
+  <p class="subtitle" style="color:var(--fg-dim)">and why it is not enough</p>
+</section>
+
+<section>
+  <h2>Visual odometry: the pipeline</h2>
+  <p style="font-size:0.72em; margin:0.3em 0 0"><b>1. Initialisation</b> (once, at the start: no 3D points exist yet, so only 2D-2D matches and $E$)</p>
+  <div class="flow" style="font-size:0.66em; margin-top:0.3em">
+    <div class="step">first frames</div><div class="arr">→</div>
+    <div class="step key">features:<br>detect + match / track</div><div class="arr">→</div>
+    <div class="step key">first two frames:<br>$E$ + RANSAC → $R, \mathbf t$<br>($\|\mathbf t\| = 1$)</div><div class="arr">→</div>
+    <div class="step key">triangulate<br>3D points</div>
+  </div>
+  <p style="font-size:0.72em; margin:0.6em 0 0"><b>2. Tracking</b> (every new frame: the 3D points now exist, so 2D-3D matches and PnP)</p>
+  <div class="flow" style="font-size:0.66em; margin-top:0.3em">
+    <div class="step">new frame</div><div class="arr">→</div>
+    <div class="step key"><b>PnP</b> + RANSAC on the<br>known 3D points<br>(lecture 2)</div><div class="arr">→</div>
+    <div class="step key">triangulate<br>new points</div><div class="arr">→</div>
+    <div class="step">local refinement<br>(bundle adjustment<br>over the last frames)</div><div class="arr">→</div>
+    <div class="step">camera trajectory</div>
+  </div>
+  <div class="cols" style="font-size:0.74em; margin-top:0.6em">
+    <ul>
+      <li>the camera as a <b>motion sensor</b>: frame-to-frame pose, chained over time</li>
+      <li>why not $E$ for every pair: each pair would get its own unknown scale ($\|\mathbf t\| = 1$ every time); PnP against the triangulated points keeps <b>one</b> scale, and uses more information</li>
+      <li>stereo VO: triangulate from the stereo pair each frame: metric, no scale problem</li>
+    </ul>
+    <div class="box">
+      <p style="margin:0">Nistér et al. coined "visual odometry" (2004). The Mars rovers Spirit and Opportunity used stereo VO to correct wheel slip (Maimone et al., 2007).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Why odometry is not enough: drift</h2>
+  <div data-widget="vodrift" data-config='{}'></div>
+</section>
+
+<section>
+  <h2>From odometry to SLAM</h2>
+  <div class="cols" style="font-size:0.85em">
+    <div>
+      <p><b>SLAM</b>: simultaneous localisation and mapping. Keep a map, and use it:</p>
+      <ul>
+        <li><b>loop closure</b>: recognise a place seen before (bag of visual words, learned place recognition), add a constraint "this pose ≈ that pose"</li>
+        <li><b>optimise</b> the whole trajectory (pose graph) or the poses and the points together (bundle adjustment)</li>
+        <li><b>relocalise</b> after losing track (PnP against the map)</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Systems</h3>
+      <ul style="font-size:0.9em; margin:0 0 0 1.1em">
+        <li>ORB-SLAM3 (2021): features, mono / stereo / RGB-D, with an IMU</li>
+        <li>VINS-Mono (2018): visual-inertial</li>
+        <li>DROID-SLAM (2021): learned, dense</li>
+        <li>MASt3R-SLAM (2025): on top of a 3D foundation model</li>
+      </ul>
+      <p style="font-size:0.85em; margin:0.4em 0 0"><b>Next lecture</b> (Oct 28): 3D reconstruction and SLAM in depth.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>Summary</h2>
+  <div class="cols">
+    <ul style="font-size:0.88em">
+      <li>a homography relates two images of a <b>plane</b>, or two images taken by a <b>rotating</b> camera: $H = KRK^{-1}$; otherwise parallax</li>
+      <li>$H$: 8 DoF, 4 points, DLT + RANSAC; stitching = warp into a reference frame + blend</li>
+      <li>features: repeatable, well localised, distinctive; Harris ($M$, two large eigenvalues), SIFT, ORB; ratio test; learned features and matchers</li>
+    </ul>
+    <ul style="font-size:0.88em">
+      <li>general pair: the match lies on the <b>epipolar line</b>; $\mathbf x_r^\top E\,\mathbf x_l = 0$, $E = [\mathbf t]_\times R$ (5 DoF), $F = K_r^{-\top}EK_l^{-1}$ (7 DoF)</li>
+      <li>8-point / 5-point + RANSAC → $E$ → four poses, cheirality picks one; triangulation</li>
+      <li>monocular: <b>no scale</b>; visual odometry drifts → loop closure, SLAM</li>
+    </ul>
+  </div>
+  <div class="takeaway">One recipe all along: write the model as linear equations, solve $\min\|A\mathbf x\|$ with $\|\mathbf x\| = 1$, wrap it in RANSAC, refine the error in pixels.</div>
+</section>
+
+<section>
+  <h2>Exercises</h2>
+  <ol style="font-size:0.82em">
+    <li>Write the two DLT rows for the correspondence $(1, 2) \to (3, 5)$. Why must no three of the four points be collinear?</li>
+    <li>$K$: $f = 500$ px, principal point $(320, 240)$. The camera pans (turns about its vertical axis) by 10°. Roughly how far does the image centre move? Show that $\tilde{\mathbf u}_2 \equiv KRK^{-1}\tilde{\mathbf u}_1$.</li>
+    <li>Rectified stereo, right camera at $(b, 0, 0)$: compute $E$ and show that the epipolar constraint gives $v_l = v_r$.</li>
+    <li>Why is $\det E = 0$? Which point does $[\mathbf t]_\times$ send to zero, and what is its image in the right camera?</li>
+    <li>RANSAC with 50% outliers, $p = 0.99$: how many iterations for the 8-point and the 5-point solver?</li>
+    <li>A monocular VO system reports that the robot drove 3.0 units. Name two sensors that would turn this into metres.</li>
+  </ol>
+</section>
+
+<section id="feedback" class="title-slide">
+  <h1>Feedback</h1>
+  <div style="display:flex; align-items:center; gap:1.5em; margin-top:0.5em">
+    <img src="../../assets/feedback-qr.svg" alt="QR code linking to tinyurl.com/mimuw-rc-feedback" style="width:340px; height:340px; box-sizing:content-box; padding:18px; background:#fff; border-radius:8px; margin:0">
+    <div>
+      <p>Please spend a minute: your feedback helps me improve the next lecture.</p>
+      <p style="font-family:var(--mono); font-size:1.1em"><a href="https://tinyurl.com/mimuw-rc-feedback">tinyurl.com/mimuw-rc-feedback</a></p>
+      <p class="small">Anonymous, no login, three questions.</p>
+    </div>
+  </div>
+</section>
+
+</div></div>
+<script type="module" src="../../shared/deck.js"></script>
+</body>
+</html>

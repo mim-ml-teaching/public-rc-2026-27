@@ -42,6 +42,16 @@ const widgetModules = {
   stereo3d: () => import('./widgets/stereo3d.js'),
   shutter: () => import('./widgets/shutter.js'),
   eyes2d: () => import('./widgets/eyes2d.js'),
+  parallax: () => import('./widgets/parallax.js'),
+  stitch: () => import('./widgets/stitch.js'),
+  harris: () => import('./widgets/harris.js'),
+  epipolar: () => import('./widgets/epipolar.js'),
+  vodrift: () => import('./widgets/vodrift.js'),
+  birdseye: () => import('./widgets/birdseye.js'),
+  aerial: () => import('./widgets/aerial.js'),
+  panoproj: () => import('./widgets/panoproj.js'),
+  dronemap: () => import('./widgets/dronemap.js'),
+  vomotion: () => import('./widgets/vomotion.js'),
 };
 
 function renderMath(root) {
@@ -65,7 +75,7 @@ async function mountWidget(el) {
   const config = el.dataset.config ? JSON.parse(el.dataset.config) : {};
   const mod = await load();
   if (el.dataset.gen !== gen || !el.dataset.mounted) return; // unmounted while loading
-  mod.mount(el, config);
+  await mod.mount(el, config);
 }
 
 // Browsers allow only ~16 live WebGL contexts; release widgets on slides we are not near.

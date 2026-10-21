@@ -18,7 +18,8 @@ export function h(tag, attrs = {}, ...children) {
 }
 
 export function isPrint() {
-  return document.documentElement.classList.contains('reveal-print');
+  // the class appears only once reveal has set up the print view; the first widget may mount before that
+  return document.documentElement.classList.contains('reveal-print') || /print-pdf/i.test(location.search);
 }
 
 // ---- 3x3 matrices as flat row-major arrays of length 9 ----
