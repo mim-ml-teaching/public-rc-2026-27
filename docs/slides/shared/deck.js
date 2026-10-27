@@ -52,6 +52,11 @@ const widgetModules = {
   panoproj: () => import('./widgets/panoproj.js'),
   dronemap: () => import('./widgets/dronemap.js'),
   vomotion: () => import('./widgets/vomotion.js'),
+  sfm3d: () => import('./widgets/sfm3d.js'),
+  ba2d: () => import('./widgets/ba2d.js'),
+  slam2d: () => import('./widgets/slam2d.js'),
+  multiview2d: () => import('./widgets/multiview2d.js'),
+  annotate: () => import('./widgets/annotate.js'),
 };
 
 function renderMath(root) {
@@ -63,6 +68,8 @@ function renderMath(root) {
       { left: '\\(', right: '\\)', display: false },
     ],
     throwOnError: false,
+    trust: ctx => ctx.command === '\\htmlClass',   // \htmlClass{name}{…}: a part of a formula that an arrow can point to (widgets/annotate.js)
+    strict: code => (code === 'htmlExtension' ? 'ignore' : 'warn'),
   });
 }
 
@@ -121,8 +128,9 @@ function freezeWebGL(el) {
     const img = new Image();
     img.src = c.toDataURL('image/png');
     img.style.cssText = c.style.cssText;
-    img.style.width = c.clientWidth + 'px';
-    img.style.height = c.clientHeight + 'px';
+    // clientWidth is 0 while reveal is still building the print pages: fall back to the CSS size the widget set
+    img.style.width = (c.clientWidth || parseFloat(c.style.width) || c.width) + 'px';
+    img.style.height = (c.clientHeight || parseFloat(c.style.height) || c.height) + 'px';
     img.style.margin = '0';
     c.replaceWith(img);
     gl.getExtension('WEBGL_lose_context')?.loseContext();
@@ -131,6 +139,10 @@ function freezeWebGL(el) {
 
 // Print view: mount every widget, one at a time, then set window.__deckReady (make-pdf.mjs waits for it).
 async function mountAllForPrint() {
+  // reveal builds the print layout over several animation frames after 'ready'; a widget mounted before its page
+  // exists is laid out at size 0 (and its WebGL canvas would be frozen blank), so wait for the pages first.
+  for (let i = 0; i < 600 && !document.querySelector('.pdf-page'); i++) await frames(1);
+  await frames(3);
   for (const el of document.querySelectorAll('[data-widget]')) {
     await mountWidget(el);
     await frames(3);
