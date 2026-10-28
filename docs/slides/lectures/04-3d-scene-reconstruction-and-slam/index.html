@@ -177,7 +177,7 @@
       <b>Output</b>:
       <ul style="margin:0 0 0 1.1em">
         <li>the cameras: intrinsics and pose of every image</li>
-        <li>the 3D points: position, colour, and the list of images each one is seen in</li>
+        <li>the 3D points: position and the list of images each one is seen in</li>
         <li>a reprojection error for every observation: how well the model explains it</li>
       </ul>
     </div>
@@ -475,7 +475,7 @@
 
 <section>
   <h2>SLAM: the problem</h2>
-  <p style="font-size:0.85em; margin:0.2em 0 0.4em">A robot in an unknown environment needs its <b>pose</b> (to control itself) and a <b>map</b> (to plan). Each helps with the other is known:</p>
+  <p style="font-size:0.85em; margin:0.2em 0 0.4em">A robot in an unknown environment needs its <b>pose</b> (to control itself) and a <b>map</b> (to plan). Each helps with the other:</p>
   <svg viewBox="0 0 760 250" style="width:900px; display:block; margin:0 auto" font-family="Inter, Arial, sans-serif">
 <defs><marker id="egg-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa1ae"/></marker></defs>
 <rect x="40" y="95" width="260" height="70" rx="10" fill="#1e2128" stroke="#5ab0ff" stroke-width="2"/>
@@ -501,12 +501,12 @@
 </section>
 
 <section>
-  <h2>What we would like to have</h2>
+  <h2>SLAM, mathematically</h2>
   <div class="anno" style="width:1200px; height:620px">
     <div style="position:absolute; left:0; top:20px"><div data-widget="slam2d" data-config='{"width":410,"height":300,"simple":true}'></div></div>
     <div class="callout" data-to=".t-xp" style="left:470px; top:0; width:500px"><b>Unknown</b> too, but we already have an estimate of it from the previous step. Both poses keep being adjusted.</div>
     <div class="f" style="left:420px; right:0; top:110px; font-size:1.35em">$$\htmlClass{t-odo}{\mathbf z_t} = \htmlClass{t-f}{f}\big(\htmlClass{t-xp pose}{\mathbf x_{t-1}}, \htmlClass{t-x pose}{\mathbf x_t}\big)$$</div>
-    <div class="callout" data-to=".t-odo" style="left:420px; top:205px; width:230px"><b>Measured</b>: the robot's motion since the last step (noisy)<br><span class="dim" style="font-size:0.85em">e.g. from the wheels, or from the images (visual odometry<sup>*</sup>)</span></div>
+    <div class="callout" data-to=".t-odo" style="left:420px; top:205px; width:230px"><b>Measured</b>: the robot's motion since the last step (noisy)<br><span class="dim" style="font-size:0.85em">e.g. from the images (visual odometry<sup>*</sup>), or from the wheels</span></div>
     <div class="callout" data-to=".t-f" style="left:680px; top:205px; width:200px">the motion that the two poses imply</div>
     <div class="callout" data-to=".t-x" style="left:920px; top:205px; width:260px"><b>Unknown</b>: the robot's pose at step $t$: where it is and which way it faces</div>
     <div class="f" style="left:420px; right:0; top:300px; font-size:1.35em">$$\htmlClass{t-obs}{\mathbf z_{t,k}} = \htmlClass{t-h}{h}\big(\htmlClass{pose}{\mathbf x_t}, \htmlClass{t-l lm}{\mathbf l_k}\big)$$</div>
