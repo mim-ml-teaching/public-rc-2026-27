@@ -31,12 +31,26 @@ export async function mount(el, cfg) {
     if (!R.width || !root.offsetWidth) return;
     const sx = R.width / root.offsetWidth, sy = R.height / root.offsetHeight;
     svg.setAttribute('viewBox', `0 0 ${root.offsetWidth} ${root.offsetHeight}`);
-    const box = e => { const r = e.getBoundingClientRect(); return { x: (r.left - R.left) / sx, y: (r.top - R.top) / sy, w: r.width / sx, h: r.height / sy }; };
+    const toBox = r => ({ x: (r.left - R.left) / sx, y: (r.top - R.top) / sy, w: r.width / sx, h: r.height / sy });
+    const box = e => toBox(e.getBoundingClientRect());
+    // A KaTeX fragment (a fraction, a sum) draws its parts above and below its own line box, so its rect is too
+    // short: take the union of the glyph-bearing leaves instead.
+    const glyphBox = e => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const c of [e, ...e.querySelectorAll('*')]) {
+        if (c.children.length && !c.classList.contains('frac-line')) continue;
+        if (!c.classList.contains('frac-line') && !/[^\s\u200b]/.test(c.textContent)) continue;
+        const q = c.getBoundingClientRect();
+        if (!q.width && !q.height) continue;
+        x0 = Math.min(x0, q.left); y0 = Math.min(y0, q.top); x1 = Math.max(x1, q.right); y1 = Math.max(y1, q.bottom);
+      }
+      return x0 < Infinity ? toBox({ left: x0, top: y0, width: x1 - x0, height: y1 - y0 }) : box(e);
+    };
     const lines = [];
     for (const from of root.querySelectorAll('[data-to]')) {
       if (from.classList.contains('fragment') && !from.classList.contains('visible')) continue;
       for (const to of root.querySelectorAll(from.dataset.to)) {
-        const a = box(from), b = box(to);
+        const a = box(from), b = glyphBox(to);
         const dx = (b.x + b.w / 2) - (a.x + a.w / 2), dy = (b.y + b.h / 2) - (a.y + a.h / 2);
         const L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
         const [x1, y1] = exit(a, ux, uy), [x2, y2] = exit(b, -ux, -uy);

@@ -272,8 +272,8 @@
     <div class="f" style="left:0; right:0; top:90px; font-size:1.8em">$$\htmlClass{t-pi}{\pi_j}\big(\htmlClass{t-P}{\mathbf P_j},\ \htmlClass{t-X}{\mathbf X_i}\big) = \htmlClass{t-u}{\mathbf u_{i,j}}$$</div>
     <div class="f" style="left:0; right:0; top:330px; font-size:1.3em">$$\begin{aligned} j &= 1, \ldots, \htmlClass{t-J}{J} \\ i &= 1, \ldots, \htmlClass{t-I}{I_j} \end{aligned}$$</div>
     <div class="callout" data-to=".t-pi" style="left:30px; top:230px; width:330px"><b>Estimated</b> reprojection function, e.g. a projection matrix, but can also be more general, e.g. include undistortion</div>
-    <div class="callout" data-to=".t-P" style="left:390px; top:260px; width:190px"><b>Estimated</b> camera pose</div>
-    <div class="callout" data-to=".t-X" style="left:690px; top:250px; width:200px"><b>Estimated</b> 3D point coordinates</div>
+    <div class="callout" data-to=".t-P" style="left:400px; top:260px; width:120px"><b>Estimated</b> camera pose</div>
+    <div class="callout" data-to=".t-X" style="left:570px; top:250px; width:200px"><b>Estimated</b> 3D point coordinates</div>
     <div class="callout" data-to=".t-u" style="left:930px; top:60px; width:230px"><b>Known</b> (observed, so noisy) 2D projection of the point</div>
     <div class="callout" data-to=".t-J" style="left:830px; top:338px; width:170px">cameras / images</div>
     <div class="callout" data-to=".t-I" style="left:830px; top:410px; width:230px">features seen in a given image</div>
@@ -304,12 +304,12 @@
     <div class="f" style="left:0; right:0; top:50px; font-size:1.5em">$$\htmlClass{t-ex}{\pi_j(\mathbf P_j, \mathbf X_i) = \mathbf u_{i,j}}$$</div>
     <div class="callout" data-to=".t-gen" style="left:90px; top:208px; width:210px">Of a general problem</div>
     <div class="f" style="left:0; right:0; top:180px; font-size:1.7em">$$\htmlClass{t-gen}{\htmlClass{t-f}{f}\,(\htmlClass{t-A}{A}, \htmlClass{t-b}{\mathbf b}) = \htmlClass{t-ug}{\mathbf u}}$$</div>
-    <div class="callout" data-to=".t-f" style="left:300px; top:340px; width:230px">Some function, not necessarily linear (our knowledge)</div>
-    <div class="callout" data-to=".t-A" style="left:570px; top:340px; width:100px">inputs</div>
-    <div class="callout" data-to=".t-b" style="left:600px; top:440px; width:240px">All parameters we don't know (want to estimate)</div>
-    <div class="callout" data-to=".t-A, .t-ug" style="left:700px; top:116px; width:220px">Things we know (observations)</div>
-    <div class="callout" data-to=".t-ug" style="left:800px; top:270px; width:100px">outputs</div>
-    <div class="callout key fragment" style="left:880px; top:430px; width:290px"><i>Question</i>: how does the general formulation map to our case?</div>
+    <div class="callout fragment" data-fragment-index="1" data-to=".t-f" style="left:250px; top:340px; width:230px">Some function, not necessarily linear (our knowledge)</div>
+    <div class="callout fragment" data-fragment-index="1" data-to=".t-A" style="left:520px; top:340px; width:100px">inputs</div>
+    <div class="callout fragment" data-fragment-index="1" data-to=".t-b" style="left:600px; top:440px; width:240px">All parameters we don't know (want to estimate)</div>
+    <div class="callout fragment" data-fragment-index="1" data-to=".t-A, .t-ug" style="left:485px; top:134px; width:280px">Things we know (observations)</div>
+    <div class="callout fragment" data-fragment-index="1" data-to=".t-ug" style="left:800px; top:270px; width:100px">outputs</div>
+    <div class="callout key fragment" data-fragment-index="1" style="left:880px; top:430px; width:290px"><i>Question</i>: how does the general formulation map to our case?</div>
     <div data-widget="annotate"></div>
   </div>
   <aside class="notes">How the general nonlinear formulation f(A, b) = u maps to our case? If we estimate everything, A is empty. If one knows the camera calibration parameters, A contains exactly these parameters. Example: 10 drones flying around a scene and taking pictures. For each observation: inputs (A): camera parameters such as the intrinsic matrix or the distortion coefficients that were used to generate a given pixel value; outputs (u): the observed pixel values; unknowns (b): the 3D point positions and the camera poses. Many values in A repeat (whenever the same drone produced the pixel), but these are our input observations.</aside>
@@ -380,9 +380,9 @@
     <div class="callout" style="left:900px; top:300px; width:260px"><span class="green">green</span>: we know it &nbsp;·&nbsp; <span class="red">red</span>: unknown</div>
     <div class="f" style="left:0; right:400px; top:420px; font-size:1.3em">$$\htmlClass{t-lin2}{\mathbf R \approx D_{\mathbf b} f(A, \mathbf b)\,\htmlClass{unknown}{\Delta\mathbf b}}$$</div>
     <div class="callout fragment" data-to=".t-lin2" data-fragment-index="1" style="left:860px; top:400px; width:120px">Linear!</div>
-    <div class="callout fragment" data-fragment-index="2" style="left:860px; top:450px; width:300px">Do we know everything we need? &nbsp;Yes</div>
-    <div class="callout fragment" data-fragment-index="3" style="left:860px; top:500px; width:300px">Solve for $\Delta\mathbf b$, move, and then…</div>
-    <div class="callout key fragment" data-fragment-index="4" style="left:200px; top:500px; width:400px; font-size:0.7em"><b>ITERATE</b> and hope for the best…</div>
+    <div class="callout fragment" data-fragment-index="1" style="left:860px; top:450px; width:300px">Do we know everything we need? &nbsp;Yes</div>
+    <div class="callout fragment" data-fragment-index="2" style="left:860px; top:520px; width:300px">Solve for $\Delta\mathbf b$, move, and then…</div>
+    <div class="callout key fragment" data-fragment-index="3" style="left:200px; top:500px; width:400px; font-size:0.7em"><b>ITERATE</b> and hope for the best…</div>
     <div data-widget="annotate"></div>
   </div>
 </section>
@@ -396,12 +396,14 @@
 <section>
   <h2>The optimisation formula for bundle adjustment</h2>
   <div class="anno" style="width:1200px; height:540px">
-    <div class="f" style="left:0; right:0; top:110px; font-size:1.4em">$$\min\ \overbrace{\sum_{i,j} \htmlClass{t-rho}{\rho_{i,j}}\Big(\underbrace{\big\|\,\htmlClass{t-pi2}{\pi_j}(\htmlClass{t-P2}{\mathbf P_j}, \htmlClass{t-X2}{\mathbf X_i}) - \htmlClass{t-u3}{\mathbf u_{i,j}}\,\big\|}_{\text{distance between the reprojected point and the observation}}\Big)}^{\text{overall error}}$$</div>
-    <div class="callout" data-to=".t-u3" style="left:940px; top:40px; width:230px"><b>Known</b> (observed, so noisy) 2D projection of the point</div>
-    <div class="callout" data-to=".t-rho" style="left:40px; top:400px; width:290px">Loss function, e.g. to down-weight outliers</div>
-    <div class="callout" data-to=".t-pi2" style="left:360px; top:430px; width:330px"><b>Estimated</b> reprojection function, e.g. a projection matrix, can include undistortion</div>
-    <div class="callout" data-to=".t-P2" style="left:600px; top:350px; width:170px"><b>Estimated</b> camera pose</div>
-    <div class="callout" data-to=".t-X2" style="left:800px; top:350px; width:200px"><b>Estimated</b> 3D point coordinates</div>
+    <div class="f" style="left:0; right:0; top:170px; font-size:1.5em">$$\min\ \htmlClass{t-all}{\sum_{i,j} \htmlClass{t-rho}{\rho_{i,j}}\Big(\htmlClass{t-dist}{\big\|\,\htmlClass{t-pi2}{\pi_j}(\htmlClass{t-P2}{\mathbf P_j}, \htmlClass{t-X2}{\mathbf X_i}) - \htmlClass{t-u3}{\mathbf u_{i,j}}\,\big\|}\Big)}$$</div>
+    <div class="callout" data-to=".t-all" style="left:150px; top:30px; width:200px">overall error</div>
+    <div class="callout" data-to=".t-dist" style="left:450px; top:30px; width:340px">distance between the reprojected point and the observation</div>
+    <div class="callout" data-to=".t-u3" style="left:900px; top:30px; width:260px"><b>Known</b> (observed, so noisy) 2D projection of the point</div>
+    <div class="callout" data-to=".t-rho" style="left:200px; top:340px; width:260px">Loss function, e.g. to down-weight outliers</div>
+    <div class="callout" data-to=".t-pi2" style="left:330px; top:420px; width:300px"><b>Estimated</b> reprojection function, e.g. a projection matrix, can include undistortion</div>
+    <div class="callout" data-to=".t-P2" style="left:600px; top:340px; width:170px"><b>Estimated</b> camera pose</div>
+    <div class="callout" data-to=".t-X2" style="left:820px; top:420px; width:200px"><b>Estimated</b> 3D point coordinates</div>
     <div data-widget="annotate"></div>
   </div>
 </section>
@@ -506,13 +508,13 @@
     <div style="position:absolute; left:0; top:20px"><div data-widget="slam2d" data-config='{"width":410,"height":300,"simple":true}'></div></div>
     <div class="callout" data-to=".t-xp" style="left:470px; top:0; width:500px"><b>Unknown</b> too, but we already have an estimate of it from the previous step. Both poses keep being adjusted.</div>
     <div class="f" style="left:420px; right:0; top:110px; font-size:1.35em">$$\htmlClass{t-odo}{\mathbf z_t} = \htmlClass{t-f}{f}\big(\htmlClass{t-xp pose}{\mathbf x_{t-1}}, \htmlClass{t-x pose}{\mathbf x_t}\big)$$</div>
-    <div class="callout" data-to=".t-odo" style="left:420px; top:205px; width:230px"><b>Measured</b>: the robot's motion since the last step (noisy)<br><span class="dim" style="font-size:0.85em">e.g. from the images (visual odometry<sup>*</sup>), or from the wheels</span></div>
-    <div class="callout" data-to=".t-f" style="left:680px; top:205px; width:200px">the motion that the two poses imply</div>
-    <div class="callout" data-to=".t-x" style="left:920px; top:205px; width:260px"><b>Unknown</b>: the robot's pose at step $t$: where it is and which way it faces</div>
+    <div class="callout" data-to=".t-odo" style="left:420px; top:205px; width:250px"><b>Measured</b>: the robot's motion since the last step (noisy)<br><span class="dim" style="font-size:0.85em">e.g. from the images (visual odometry<sup>*</sup>), or from the wheels</span></div>
+    <div class="callout" data-to=".t-f" style="left:700px; top:230px; width:140px">the motion the two poses imply</div>
+    <div class="callout" data-to=".t-x" style="left:870px; top:205px; width:210px"><b>Unknown</b>: the robot's pose at step $t$: where it is and which way it faces</div>
     <div class="f" style="left:420px; right:0; top:300px; font-size:1.35em">$$\htmlClass{t-obs}{\mathbf z_{t,k}} = \htmlClass{t-h}{h}\big(\htmlClass{pose}{\mathbf x_t}, \htmlClass{t-l lm}{\mathbf l_k}\big)$$</div>
-    <div class="callout" data-to=".t-obs" style="left:420px; top:385px; width:230px"><b>Measured</b>: the distance (range) and the direction (bearing) to landmark $k$ (noisy)<br><span class="dim" style="font-size:0.85em">e.g. from a laser scanner; a camera gives the pixel instead</span></div>
-    <div class="callout" data-to=".t-h" style="left:680px; top:385px; width:220px">what the sensor should see from $\mathbf x_t$ if the landmark is at $\mathbf l_k$</div>
-    <div class="callout" data-to=".t-l" style="left:940px; top:385px; width:240px"><b>Unknown</b>: where landmark $k$ is</div>
+    <div class="callout" data-to=".t-obs" style="left:340px; top:385px; width:260px"><b>Measured</b>: the distance (range) and the direction (bearing) to landmark $k$ (noisy)<br><span class="dim" style="font-size:0.85em">e.g. from a laser scanner; a camera gives the pixel instead</span></div>
+    <div class="callout" data-to=".t-h" style="left:640px; top:425px; width:170px">what the sensor should see from $\mathbf x_t$ if the landmark is at $\mathbf l_k$</div>
+    <div class="callout" data-to=".t-l" style="left:840px; top:405px; width:150px"><b>Unknown</b>: where landmark $k$ is</div>
     <div class="takeaway" style="position:absolute; left:0; top:535px; width:1160px; font-size:0.74em; margin:0"><b>With a camera as the sensor, this is Part 1 again</b>: the landmarks are 3D points, $\mathbf z_{t,k}$ is the pixel where point $k$ appears in image $t$, and $h$ is the projection $\pi$. SLAM is bundle adjustment running on the robot.</div>
     <p class="small" style="position:absolute; left:0; top:600px; margin:0; font-size:0.5em"><sup>*</sup> odometry: from Greek hodós, road, and métron, measure</p>
     <div data-widget="annotate"></div>
@@ -522,9 +524,9 @@
 <section>
   <h2>Can't solve directly so we define the cost function</h2>
   <div class="anno" style="width:1200px; height:540px">
-    <div class="f" style="left:0; right:0; top:40px; font-size:1.0em">$$\min_{\mathbf x_{0:T},\ \mathbf l_{1:K}}\ \ \htmlClass{t-prior}{\frac{\big\|\mathbf x_0 - \bar{\mathbf x}_0\big\|^2}{\sigma_0^2}} \;+\; \sum_{t=1}^{T} \htmlClass{t-odot}{\frac{\big\|f(\mathbf x_{t-1}, \mathbf x_t) - \mathbf z_t\big\|^2}{\sigma_{\text{odo}}^2}} \;+\; \sum_{(t,k)} \htmlClass{t-obst}{\frac{\big\|h(\mathbf x_t, \mathbf l_k) - \mathbf z_{t,k}\big\|^2}{\sigma_{\text{obs}}^2}}$$</div>
+    <div class="f" style="left:0; right:0; top:40px; font-size:1.0em">$$\min_{\mathbf x_{0:T},\ \mathbf l_{1:K}}\ \ \htmlClass{t-prior}{\frac{\big\|\mathbf x_0 - \bar{\mathbf x}_0\big\|^2}{\sigma_0^2}} \;+\; \sum_{t=1}^{T} \htmlClass{t-odot}{\frac{\big\|f(\mathbf x_{t-1}, \mathbf x_t) - \mathbf z_t\big\|^2}{\sigma_t^2}} \;+\; \sum_{(t,k)} \htmlClass{t-obst}{\frac{\big\|h(\mathbf x_t, \mathbf l_k) - \mathbf z_{t,k}\big\|^2}{\sigma_{t, k}^2}}$$</div>
     <div class="callout" data-to=".t-prior" style="left:30px; top:230px; width:300px"><b>prior</b>: estimated starting pose is what we measured at the beginning</div>
-    <div class="callout" data-to=".t-odot" style="left:440px; top:250px; width:300px"><b>odometry</b>: consecutive poses should agree with the measured motion between them</div>
+    <div class="callout" data-to=".t-odot" style="left:440px; top:230px; width:300px"><b>motion</b>: consecutive poses should agree with the measured motion between them</div>
     <div class="callout" data-to=".t-obst" style="left:850px; top:230px; width:320px"><b>observations</b>: every landmark should be where the robot saw it from</div>
     <div class="callout key" style="left:300px; top:350px; width:600px"><b>weights</b> $1/\sigma^2$: a measurement counts according to its noise; when measurements disagree, the precise ones win over the noisy ones.</div>
     <div class="takeaway" style="position:absolute; left:0; top:440px; width:1160px; font-size:0.8em; margin:0">The same recipe as bundle adjustment: for every measurement, (what it should be, given the unknowns) − (what it was), squared, weighted, summed. Then linearise, solve, move, iterate.</div>
@@ -543,7 +545,7 @@
     <div class="callout" data-to=".t-exp" style="left:800px; top:285px; width:340px">independent measurements: a product of bell curves</div>
     <div class="f" style="left:0; right:0; top:355px; font-size:1.15em">$$\arg\max_{\mathbf x}\ p \;=\; \arg\min_{\mathbf x}\ \sum_i \htmlClass{t-w}{\frac{e_i^2}{\sigma_i^2}}$$</div>
     <div class="callout" style="left:40px; top:445px; width:340px">the log turns the product into a sum and the max into a min; the constants drop out</div>
-    <div class="callout" data-to=".t-w" style="left:800px; top:445px; width:340px">the weights $1/\sigma^2$ fall out by themselves: a precise measurement counts more</div>
+    <div class="callout" data-to=".t-w" style="left:800px; top:450px; width:340px">the weights $1/\sigma^2$ fall out by themselves: a precise measurement counts more</div>
     <div class="takeaway" style="position:absolute; left:0; top:520px; width:1160px; font-size:0.8em; margin:0">Least squares with $1/\sigma^2$ weights is the <b>most likely</b> explanation of the measurements, if their noise is Gaussian. That is where the cost comes from.</div>
     <div data-widget="annotate"></div>
   </div>
@@ -691,6 +693,20 @@
     <li>map once, localise for months: build the map with SLAM, then localise against it (cheaper, no drift)</li>
     <li>where it runs today: vacuum and warehouse robots, drones and headsets, cars, planetary rovers</li>
   </ul>
+</section>
+
+<section>
+  <h2>Lab sessions: SLAM in a warehouse</h2>
+  <div style="display:flex; justify-content:center; align-items:flex-start; gap:1.2em; margin-top:0.4em">
+    <figure style="margin:0; width:430px; flex:none">
+      <img src="../../assets/lecture04/slam_aisle.gif" data-print-src="../../assets/lecture04/slam_aisle_last.png" alt="SLAM in one aisle, step by step" style="width:100%; display:block; border-radius:8px; border:1px solid var(--line)">
+      <figcaption style="font-size:0.62em; margin-top:0.3em"><b>Part 1</b>: one aisle. The robot drives there and back; the tags are on the shelf posts.</figcaption>
+    </figure>
+    <figure style="margin:0; width:760px; flex:none">
+      <img src="../../assets/lecture04/slam_floor.gif" data-print-src="../../assets/lecture04/slam_floor_last.png" alt="SLAM on the warehouse floor, step by step" style="width:100%; display:block; border-radius:8px; border:1px solid var(--line)">
+      <figcaption style="font-size:0.62em; margin-top:0.3em"><b>Part 2</b>: the whole floor. The robot patrols the aisles and comes back to the start; the loop closes.</figcaption>
+    </figure>
+  </div>
 </section>
 
 <!-- ============================================================ -->

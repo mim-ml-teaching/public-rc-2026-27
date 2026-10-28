@@ -1,0 +1,11 @@
+[project]
+name = "slam"
+version = "0.2.0"
+description = "Graph SLAM in a warehouse: one aisle (1D), then the whole floor (2D)"
+readme = "lab5.md"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "scipy>=1.11",
+]

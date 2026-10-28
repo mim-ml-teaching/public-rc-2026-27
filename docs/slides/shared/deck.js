@@ -148,6 +148,11 @@ async function mountAllForPrint() {
     await frames(3);
     freezeWebGL(el);
   }
+  // an animated GIF prints as its first frame: print a still (the last frame) instead
+  for (const img of document.querySelectorAll('img[data-print-src]')) {
+    img.src = img.dataset.printSrc;
+    try { await img.decode(); } catch { /* a missing image must not block the PDF */ }
+  }
   await document.fonts.ready;
   renderMath(document.querySelector('.reveal .slides'));
   await frames(3);
