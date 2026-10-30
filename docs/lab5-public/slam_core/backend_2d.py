@@ -131,6 +131,9 @@ class WarehouseBackend:
             jac_sparsity=sparsity,
             method="trf",
             x_scale="jac",
+            # with the sparsity pattern, every step is solved iteratively (LSMR); its default tolerance is too
+            # loose for a loop closure, where the whole route has to bend at once, and the solve then crawls
+            tr_options={"atol": 1e-12, "btol": 1e-12},
             verbose=verbose,
         )
         poses, landmarks = self.unpack(result.x, n_poses)

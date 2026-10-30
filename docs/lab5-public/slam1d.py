@@ -19,7 +19,7 @@ SIGMA_SENSOR = 0.05  # metres
 
 
 def main():
-    frontend = AisleFrontend(sigma_odom=SIGMA_ODOM, sigma_sensor=SIGMA_SENSOR, seed=1)
+    frontend = AisleFrontend(sigma_odom=SIGMA_ODOM, sigma_sensor=SIGMA_SENSOR, seed=28)
     true_x, odometry, observations = frontend.run()
     print(f"{len(true_x)} steps, {len(observations)} sightings of {len(frontend.posts)} posts")
 

@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--play", action="store_true", help="the drive step by step, interactive")
     ap.add_argument("--no-sparsity", action="store_true", help="solve without the sparsity pattern")
     ap.add_argument("--spy", action="store_true", help="also draw the sparsity pattern of the Jacobian")
-    ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--seed", type=int, default=5)
     args = ap.parse_args()
 
     world = Warehouse(bay=3)  # a label every 3 m along the shelves
