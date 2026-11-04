@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lecture 5: PID control &amp; simulation engines</title>
+  <link rel="stylesheet" href="../../vendor/reveal/reset.css">
+  <link rel="stylesheet" href="../../vendor/reveal/reveal.css">
+  <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="../../shared/deck.css">
+  <script src="../../vendor/katex/katex.min.js"></script>
+  <script src="../../vendor/katex/contrib/auto-render.min.js"></script>
+  <script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js" } }</script>
+  <style>
+    .anno { position:relative; margin:0 auto; }
+    .anno .callout { position:absolute; background:var(--bg-2); border:1.5px solid var(--line); border-radius:8px; padding:0.35em 0.6em; font-size:0.56em; line-height:1.3; text-align:center; }
+    .anno .callout.key { border-color:var(--accent); }
+    .anno .f { position:absolute; margin:0; }
+    .anno .f .katex-display { margin:0; }
+    .anno .t { position:absolute; margin:0; font-size:0.8em; }
+    .reveal li.key { color:var(--accent); }
+    .reveal-print .fragment.fade-out, .reveal-print .fragment.fade-in-then-out { display:none !important; }
+    .sel { position:absolute; inset:-5px; border:3px solid var(--accent); border-radius:12px; pointer-events:none; }
+    [data-integration-step] { opacity:0.45; border-color:var(--line); transition:opacity 0.15s, border-color 0.15s; }
+    [data-integration-step].active { opacity:1; border-color:var(--blue); }
+    [data-integration-step="2"].active { border-color:var(--accent); }
+    .reveal-print [data-integration-step] { opacity:1; }
+    /* Keep the PID explanation and the experiment in the same places as terms are added. */
+    .pid-diagram { display:grid; grid-template-columns:100px 50px 1fr; align-items:center; width:1180px; }
+    .pid-error { border:1.5px solid var(--accent); border-radius:8px; background:var(--bg-2); text-align:center; padding:0.4em 0; font-size:0.65em; line-height:1.5; }
+    .pid-branches { width:50px; height:148px; fill:none; stroke:var(--fg-dim); stroke-width:1.5; }
+    .pid-terms { display:grid; gap:8px; }
+    .pid-term-row { position:relative; box-sizing:border-box; height:44px; display:grid; grid-template-columns:180px 1fr 250px; gap:10px; align-items:center; padding:0 12px; background:var(--bg-2); border:1px solid var(--line); border-radius:7px; font-size:0.68em; }
+    .pid-stage { --pid-p:#ff7868; --pid-i:#70dce3; --pid-d:#e8a2d8; }
+    .pid-p { --term-color:var(--pid-p); }
+    .pid-i { --term-color:var(--pid-i); }
+    .pid-d { --term-color:var(--pid-d); }
+    .pid-term-name, .pid-term-formula { color:var(--term-color); }
+    .pid-term-name { font-weight:600; }
+    .pid-term-description { color:var(--fg); }
+    .pid-term-formula { font-size:1.1em; }
+    .pid-term-new { border:2px solid var(--term-color); }
+    .pid-term-unused { opacity:0.48; }
+    .pid-added { position:absolute; right:10px; color:var(--term-color); font-size:0.7em; font-weight:600; }
+    .pid-total { display:flex; justify-content:center; align-items:center; gap:0.3em; height:57px; font-size:1.05em; }
+    .pid-total > span { color:var(--term-color); padding:0.08em 0.2em; }
+    .pid-total-new { border-bottom:2px solid var(--term-color); }
+    .pid-demo { position:relative; width:1180px; }
+    .pid-prediction { position:absolute; left:340px; top:90px; width:700px; box-sizing:border-box; margin:0; padding:0.6em 0.8em; font-size:0.85em; }
+    .pid-stage .awaiting-prediction .wctl { visibility:hidden; }
+    .pid-stage .pid-observation { margin-top:0.35em; font-size:0.72em; line-height:1.4; }
+    .pichain [data-pi] { padding:0.1em 0.7em; border-radius:10px; border:2px solid transparent; transition:background 0.15s, border-color 0.15s; }
+    .pichain [data-pi].on { border-color:var(--accent); background:rgba(242,177,52,0.14); }
+  </style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<section class="title-slide">
+  <h1>Lecture 5<br>PID control &amp; simulation engines</h1>
+  <p class="subtitle">Robot Control · University of Warsaw</p>
+  <p class="small" style="margin-top:1.2em">Feedback control with three terms, transfer functions, differential equations and how a simulator integrates them, and where the same ideas reappear in machine learning.</p>
+  <p class="small interactive-only" style="margin-top:0.6em"><a href="../../pdf/05-pid-control-and-simulation-engines.pdf">PDF version</a> (light, for printing)</p>
+</section>
+
+<section>
+  <h2>Motivation and Overview</h2>
+  <p style="font-size:0.85em; margin:0 0 0.5em">What does it take to fly a drone?</p>
+  <div class="cols" style="grid-template-columns: 1fr 1fr 1fr; gap:0.9em; font-size:0.78em; margin-top:0.3em">
+    <div class="box" style="position:relative"><h3>1 · differential equations</h3><p class="small" style="font-size:0.85em; margin:0">the state of a system, constraints, phase space</p><div class="sel fragment fade-in-then-out" data-fragment-index="1"></div></div>
+    <div class="box" style="position:relative"><h3>2 · PID control</h3><p class="small" style="font-size:0.85em; margin:0">feedback, the three terms on a drone, several controllers at once, transfer functions</p><div class="sel fragment fade-in-then-out" data-fragment-index="2"></div></div>
+    <div class="box" style="position:relative"><h3>3 · simulation engines</h3><p class="small" style="font-size:0.85em; margin:0">numerical integration and its time step, simulating deformation, the same ideas in flow matching</p><div class="sel fragment fade-in" data-fragment-index="3"></div></div>
+  </div>
+  <div style="display:grid; justify-items:center; align-items:start; margin-top:0.6em">
+    <div class="overview-video fragment fade-out" data-fragment-index="1" style="grid-area:1/1">
+      <video loop muted playsinline preload="auto" poster="../../assets/lecture05/drone_gates.jpg" style="width:569px; height:320px; display:block; border-radius:10px"><source src="../../assets/lecture05/drone_gates.mp4" type="video/mp4"></video>
+    </div>
+    <div class="fragment fade-in-then-out" data-fragment-index="1" style="grid-area:1/1">
+      <div data-widget="phase2d" data-config='{"system":"pendulum","c":0.15,"dt":0.05,"method":"rk4","q0":[2.4,0],"steps":600,"width":420,"height":320,"controls":false,"readout":false,"loop":true}'></div>
+    </div>
+    <div class="fragment fade-in-then-out" data-fragment-index="2" style="grid-area:1/1">
+      <div data-widget="piddrone" data-config='{"mode":"PID","width":1000,"height":300,"controls":"none","loop":true,"tmax":12,"speed":1.5}'></div>
+    </div>
+    <div class="fragment fade-in" data-fragment-index="3" style="grid-area:1/1">
+      <div data-widget="phase2d" data-config='{"system":"spring","c":0,"dt":0.3,"method":"euler","q0":[2,0],"steps":80,"width":420,"height":320,"controls":false,"readout":false,"loop":true}'></div>
+    </div>
+  </div>
+</section>
+
+<section class="section-slide">
+  <div class="num">Part 1</div>
+  <h1>Differential equations</h1>
+</section>
+
+<section>
+  <h2>The state of a system</h2>
+  <p>A set $\vec q$ of parameters (coordinates) whose values determine the state of the system</p>
+  <div style="display:grid; grid-template-columns: 360px 700px; gap:0 50px; justify-content:center; align-items:start; margin-top:0.4em">
+    <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">A double pendulum</h3><div class="t-pend" data-widget="dpend" data-config='{"width":360,"height":400,"show":["coords"],"stretch":false}'></div></div>
+    <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">The population of the world by level of education</h3><div data-widget="pie" data-config='{"width":700,"height":400}'></div></div>
+  </div>
+  <div class="question" style="font-size:0.78em; margin-top:0.5em">How many dimensions does $\vec q$ have?</div>
+</section>
+
+<section>
+  <h2>Derivatives describe change</h2>
+  <p>We often refer to derivatives with names from physics: <b>velocity</b> $\dot{\vec q}$ or <b>acceleration</b> $\ddot{\vec q}$</p>
+  <div style="display:grid; grid-template-columns: 360px 700px; gap:0 50px; justify-content:center; align-items:start; margin-top:0.4em">
+    <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">A double pendulum</h3><div class="t-pend" data-widget="dpend" data-config='{"width":360,"height":400,"show":["vcoords","velocity"],"stretch":false}'></div></div>
+    <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">The population of the world by level of education</h3><div data-widget="pie" data-config='{"width":700,"height":400,"velocity":true}'></div></div>
+  </div>
+  <div class="question" style="font-size:0.78em; margin-top:0.5em">And $\dot{\vec q}$, how many dimensions?</div>
+</section>
+
+<section>
+  <h2>Constraints</h2>
+  <div style="display:grid; grid-template-columns: 1fr auto; gap:0 2em; align-items:center">
+    <p style="margin:0">Usually the system has to satisfy <b>constraints</b>: the state is somehow restricted</p>
+    <p style="margin:0">$g\big(\vec q, \dot{\vec q}, t\big) = 0$</p>
+  </div>
+  <div style="display:grid; grid-template-columns: 360px 700px; gap:0 50px; justify-content:center; align-items:start; margin-top:0.4em">
+    <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">Holonomic: no derivatives</h3><div class="t-pend" data-widget="dpend" data-config='{"width":360,"height":400,"show":["lengths"],"stretch":true}'></div><p class="small" style="margin:0.35em 0 0; text-align:center">rod lengths, which may depend on time (e.g., stretching)</p></div>
+    <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">Nonholonomic: derivatives</h3><div style="display:flex; justify-content:center"><div class="t-car" data-widget="car2d" data-config='{"width":360,"height":400}'></div></div><p class="small" style="margin:0.35em 0 0; text-align:center">the car cannot move sideways: $\dot x \sin\varphi = \dot y \cos\varphi$</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Generalised coordinates</h2>
+  <p style="margin:0.2em 0 0.3em"><b>Degrees of freedom</b> (DoF) = #parameters − #holonomic constraints</p>
+  <ul style="font-size:0.85em; margin:0 0 0 1.1em">
+    <li>we can choose <b>any</b> set of parameters to describe the system</li>
+    <li>often the most convenient one has #parameters = #DoF</li>
+  </ul>
+  <div style="display:grid; grid-template-columns: 360px 700px; gap:0 50px; justify-content:center; align-items:start; margin-top:0.5em">
+    <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">A double pendulum</h3><div class="t-pend" data-widget="dpend" data-config='{"width":360,"height":400,"show":["coords"],"stretch":true}'></div><p class="small" style="margin:0.35em 0 0; text-align:center">4 coordinates, 2 holonomic constraints</p></div>
+    <div style="display:flex; align-items:center">
+      <div style="width:140px; flex:none; text-align:center; color:var(--fg-dim); font-size:0.6em; padding-top:1.6em"><svg viewBox="0 0 90 24" style="width:90px; display:block; margin:0 auto 0.4em"><defs><marker id="ar8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa1ae"/></marker></defs><line x1="2" y1="12" x2="84" y2="12" stroke="#9aa1ae" stroke-width="2.5" marker-end="url(#ar8)"/></svg>switch the<br>representation</div>
+      <div><h3 style="margin:0 0 0.35em; text-align:center; font-size:0.8em; height:1.3em">&nbsp;</h3><div class="t-pend" data-widget="dpend" data-config='{"width":360,"height":400,"show":["angles"],"stretch":true}'></div><p class="small" style="margin:0.35em 0 0; text-align:center">2 DoF: $\vec q = (\theta_1, \theta_2)$</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Differential equations</h2>
+  <p style="margin:0.2em 0">A differential equation determines how the highest derivative depends on the lower ones: $\;q^{(n)} = f\big(\vec q, \dot{\vec q}, \ldots, q^{(n-1)}, t\big)$, an ODE of order $n$</p>
+  <p style="margin:0.3em 0 0.2em"><b>Example</b>:</p>
+  <div style="display:flex; justify-content:center"><div data-widget="yt" data-config='{"id":"p_di4Zn4wz4","title":"Differential equations, a tourist&#39;s guide (3Blue1Brown), 6:54 to 9:06","width":820,"height":461,"small":false,"start":414,"end":546,"autoplay":false}'></div></div>
+</section>
+
+<section>
+  <h2>Every ODE can be made first order</h2>
+  <div style="display:grid; grid-template-columns: 1fr auto; gap:0.2em 2em; align-items:center; font-size:0.85em">
+    <p style="margin:0">Any $n$-th order ODE can be made first order, by changing the state description:</p>
+    <p style="margin:0">$\dot{\vec q} = f(\vec q(t), t)$</p>
+    <p style="margin:0">The pendulum: $\ddot\theta = -\frac{g}{L}\sin\theta - \mu\,\dot\theta$, state $\vec q = (\theta, \omega)$, $\omega = \dot\theta$:</p>
+    <p style="margin:0">$\dot{\vec q} = \begin{bmatrix}\dot\theta\\ \dot\omega\end{bmatrix} = \begin{bmatrix} \omega \\ -\frac{g}{L}\sin\theta - \mu\,\omega\end{bmatrix} = f(\vec q)$</p>
+  </div>
+  <div style="display:flex; justify-content:center; margin-top:0.5em"><div data-widget="phase2d" data-config='{"system":"pendulum","c":0.15,"dt":0.05,"method":"rk4","q0":[2.4,0],"steps":600,"width":440,"height":400,"side":true,"pendulum":true,"controls":"playback","readout":false,"showExact":false,"loop":true}'></div></div>
+</section>
+
+<section>
+  <h2>Differential equations for a drone</h2>
+  <div class="anno" style="width:1200px; height:560px">
+    <div data-widget="dronethrust" style="position:absolute; left:0; top:0"></div>
+    <div class="f" style="left:340px; right:0; top:35px; font-size:1.2em">$$m\,\ddot z = \htmlClass{t-thrust}{F(t)} - \htmlClass{t-g}{mg} - \htmlClass{t-air}{\mu\,\dot z}$$</div>
+    <div class="callout" data-to=".t-thrust" style="left:380px; top:170px; width:220px">the thrust $F(t)$</div>
+    <div class="callout" data-to=".t-g" style="left:700px; top:170px; width:160px">gravity</div>
+    <div class="callout" data-to=".t-air" style="left:920px; top:170px; width:240px">air resistance</div>
+    <div class="f" style="left:0; right:0; top:320px; font-size:1.05em">$$\mathbf q = (z, v),\quad v=\dot z,\qquad \dot{\mathbf q} = \begin{bmatrix}v \\ F(t)/m - g - (\mu/m)\,v\end{bmatrix}$$</div>
+    <div class="question" style="position:absolute; left:100px; top:450px; width:1000px; font-size:0.78em">How do we choose the thrust $F(t)$ to reach the desired altitude $H$?</div>
+    <div data-widget="annotate"></div>
+  </div>
+</section>
+
+<section class="section-slide">
+  <div class="num">Part 2</div>
+  <h1>PID control</h1>
+</section>
+
+<section>
+  <h2>A controller: the general idea</h2>
+  <svg viewBox="0 0 840 142" style="width:1000px; display:block; margin:0.2em auto 0" font-family="Inter, Arial, sans-serif"><defs><marker id="ar12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa1ae"/></marker></defs><rect x="20" y="30" width="150" height="44" rx="7" fill="#1e2128" stroke="#5fd38d" stroke-width="2"/><text x="95.0" y="57.0" fill="#e7e9ee" font-size="13" text-anchor="middle">commanded variable</text><text x="95.0" y="92" fill="#5fd38d" font-size="12" text-anchor="middle">desired altitude H</text><rect x="200" y="30" width="90" height="44" rx="7" fill="#1e2128" stroke="#f2b134" stroke-width="2"/><text x="245.0" y="57.0" fill="#e7e9ee" font-size="13" text-anchor="middle" font-weight="600">error</text><text x="245.0" y="92" fill="#f2b134" font-size="12" text-anchor="middle">e = H − z</text><rect x="350" y="30" width="130" height="44" rx="7" fill="#1e2128" stroke="#5ab0ff" stroke-width="2"/><text x="415.0" y="57.0" fill="#e7e9ee" font-size="13" text-anchor="middle">controller</text><text x="415.0" y="92" fill="#5ab0ff" font-size="12" text-anchor="middle">PID → thrust F</text><rect x="510" y="30" width="130" height="44" rx="7" fill="#1e2128" stroke="#e7e9ee" stroke-width="2"/><text x="575.0" y="57.0" fill="#e7e9ee" font-size="13" text-anchor="middle">plant</text><text x="575.0" y="92" fill="#e7e9ee" font-size="12" text-anchor="middle">the drone</text><rect x="670" y="30" width="150" height="44" rx="7" fill="#1e2128" stroke="#b28dff" stroke-width="2"/><text x="745.0" y="57.0" fill="#e7e9ee" font-size="13" text-anchor="middle">controlled variable</text><text x="745.0" y="92" fill="#b28dff" font-size="12" text-anchor="middle">current altitude z</text><line x1="170" y1="52.0" x2="198" y2="52.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar12)"/><line x1="290" y1="52.0" x2="348" y2="52.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar12)"/><line x1="480" y1="52.0" x2="508" y2="52.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar12)"/><line x1="640" y1="52.0" x2="668" y2="52.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar12)"/><path d="M 745.0 98 L 745.0 126 L 245.0 126 L 245.0 102" fill="none" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar12)"/><rect x="455" y="114" width="80" height="24" rx="6" fill="#1e2128" stroke="#3a3f4b" stroke-width="1.5"/><text x="495" y="130" fill="#9aa1ae" font-size="12" text-anchor="middle">feedback</text></svg>
+  <div style="display:flex; justify-content:center; margin-top:0.6em"><div data-widget="piddrone" data-config='{"mode":"PID","width":1000,"height":300,"controls":"none","loop":true,"tmax":12,"speed":1.5,"labels":true}'></div></div>
+</section>
+
+<section class="pid-stage">
+  <h2>PID: proportional, integral, derivative</h2>
+  <div class="pid-diagram">
+    <div class="pid-error">error<br>$e=H-z$</div>
+    <svg class="pid-branches" viewBox="0 0 50 148" aria-hidden="true"><path d="M0 74 H20 M20 22 V126 M20 22 H48 M20 74 H48 M20 126 H48"/><path d="M42 17 L48 22 L42 27 M42 69 L48 74 L42 79 M42 121 L48 126 L42 131"/></svg>
+    <div class="pid-terms">
+      <div class="pid-term-row pid-p"><span class="pid-term-name">Proportional</span><span class="pid-term-description">what the error is now</span><span class="pid-term-formula"></span></div>
+      <div class="pid-term-row pid-i"><span class="pid-term-name">Integral</span><span class="pid-term-description">the error accumulated over time</span><span class="pid-term-formula"></span></div>
+      <div class="pid-term-row pid-d"><span class="pid-term-name">Derivative</span><span class="pid-term-description">how the error is changing</span><span class="pid-term-formula"></span></div>
+    </div>
+  </div>
+  <div class="pid-total">$F_p = 0$</div>
+  <div class="pid-demo">
+    <div data-widget="piddrone" data-config='{"mode":"P","width":1180,"height":280,"labels":true,"compactReadout":true,"tmax":20,"controls":"none","autoplay":false,"kp":0,"readout":false,"showTerms":true,"terms":[]}'></div>
+  </div>
+  <p class="small" style="margin:0.35em 0 0">If some terms are missing, we have a P, PD, PI… controller.</p>
+</section>
+
+<section class="pid-stage">
+  <h2>The proportional term</h2>
+  <div class="pid-diagram">
+    <div class="pid-error">error<br>$e=H-z$</div>
+    <svg class="pid-branches" viewBox="0 0 50 148" aria-hidden="true"><path d="M0 74 H20 M20 22 V126 M20 22 H48 M20 74 H48 M20 126 H48"/><path d="M42 17 L48 22 L42 27 M42 69 L48 74 L42 79 M42 121 L48 126 L42 131"/></svg>
+    <div class="pid-terms">
+      <div class="pid-term-row pid-p pid-term-new"><span class="pid-term-name">Proportional</span><span class="pid-term-description">what the error is now</span><span class="pid-term-formula">$k_p\,e$</span><span class="pid-added">added</span></div>
+      <div class="pid-term-row pid-i pid-term-unused"><span class="pid-term-name">Integral</span><span class="pid-term-description">the error accumulated over time</span><span class="pid-term-formula"></span></div>
+      <div class="pid-term-row pid-d pid-term-unused"><span class="pid-term-name">Derivative</span><span class="pid-term-description">how the error is changing</span><span class="pid-term-formula"></span></div>
+    </div>
+  </div>
+  <div class="pid-total">$F_p = $ <span class="pid-p pid-total-new">$k_p\,e$</span></div>
+  <div class="pid-demo">
+    <div data-widget="piddrone" data-config='{"mode":"P","width":1180,"height":280,"labels":true,"compactReadout":true,"tmax":20,"controls":"gains","fixedMode":true,"startOnFragment":".pid-prediction","showTerms":true}'></div>
+    <div class="question fragment fade-out pid-prediction" data-fragment-index="0">What do you think will happen?</div>
+  </div>
+</section>
+
+<section class="pid-stage">
+  <h2>The P controller: shrinking oscillations</h2>
+  <div class="pid-diagram">
+    <div class="pid-error">error<br>$e=H-z$</div>
+    <svg class="pid-branches" viewBox="0 0 50 148" aria-hidden="true"><path d="M0 74 H20 M20 22 V126 M20 22 H48 M20 74 H48 M20 126 H48"/><path d="M42 17 L48 22 L42 27 M42 69 L48 74 L42 79 M42 121 L48 126 L42 131"/></svg>
+    <div class="pid-terms">
+      <div class="pid-term-row pid-p"><span class="pid-term-name">Proportional</span><span class="pid-term-description">what the error is now</span><span class="pid-term-formula">$k_p\,e$</span></div>
+      <div class="pid-term-row pid-i pid-term-unused"><span class="pid-term-name">Integral</span><span class="pid-term-description">the error accumulated over time</span><span class="pid-term-formula"></span></div>
+      <div class="pid-term-row pid-d pid-term-unused"><span class="pid-term-name">Derivative</span><span class="pid-term-description">how the error is changing</span><span class="pid-term-formula"></span></div>
+    </div>
+  </div>
+  <div class="pid-total">$F_p = $ <span class="pid-p">$k_p\,e$</span></div>
+  <div class="pid-demo">
+    <div data-widget="piddrone" data-config='{"mode":"P","width":1180,"height":280,"labels":true,"compactReadout":true,"tmax":20,"controls":"none","autoplay":false,"previewTime":20,"showTerms":true}'></div>
+  </div>
+  <div class="pid-observation">The amplitudes get <b>smaller and smaller</b> because of air resistance: $-\mu\,\dot z$. Let’s use this to our advantage!</div>
+</section>
+
+<section class="pid-stage">
+  <h2>The derivative term</h2>
+  <div class="pid-diagram">
+    <div class="pid-error">error<br>$e=H-z$</div>
+    <svg class="pid-branches" viewBox="0 0 50 148" aria-hidden="true"><path d="M0 74 H20 M20 22 V126 M20 22 H48 M20 74 H48 M20 126 H48"/><path d="M42 17 L48 22 L42 27 M42 69 L48 74 L42 79 M42 121 L48 126 L42 131"/></svg>
+    <div class="pid-terms">
+      <div class="pid-term-row pid-p"><span class="pid-term-name">Proportional</span><span class="pid-term-description">what the error is now</span><span class="pid-term-formula">$k_p\,e$</span></div>
+      <div class="pid-term-row pid-i pid-term-unused"><span class="pid-term-name">Integral</span><span class="pid-term-description">the error accumulated over time</span><span class="pid-term-formula"></span></div>
+      <div class="pid-term-row pid-d pid-term-new"><span class="pid-term-name">Derivative</span><span class="pid-term-description">how the error is changing</span><span class="pid-term-formula">$k_d\,\dot e$</span><span class="pid-added">added</span></div>
+    </div>
+  </div>
+  <div class="pid-total">$F_p = $ <span class="pid-p">$k_p\,e$</span> + <span class="pid-d pid-total-new">$k_d\,\dot e$</span></div>
+  <div class="pid-demo">
+    <div data-widget="piddrone" data-config='{"mode":"PD","width":1180,"height":280,"labels":true,"compactReadout":true,"tmax":20,"controls":"gains","fixedMode":true,"startOnFragment":".pid-prediction","showTerms":true}'></div>
+    <div class="question fragment fade-out pid-prediction" data-fragment-index="0">What do you think will happen?</div>
+  </div>
+  <div class="pid-observation">Our own “air resistance”: $\dot e=-\dot z$.</div>
+</section>
+
+<section class="pid-stage">
+  <h2>The PD controller: what happened</h2>
+  <div class="pid-diagram">
+    <div class="pid-error">error<br>$e=H-z$</div>
+    <svg class="pid-branches" viewBox="0 0 50 148" aria-hidden="true"><path d="M0 74 H20 M20 22 V126 M20 22 H48 M20 74 H48 M20 126 H48"/><path d="M42 17 L48 22 L42 27 M42 69 L48 74 L42 79 M42 121 L48 126 L42 131"/></svg>
+    <div class="pid-terms">
+      <div class="pid-term-row pid-p"><span class="pid-term-name">Proportional</span><span class="pid-term-description">what the error is now</span><span class="pid-term-formula">$k_p\,e$</span></div>
+      <div class="pid-term-row pid-i pid-term-unused"><span class="pid-term-name">Integral</span><span class="pid-term-description">the error accumulated over time</span><span class="pid-term-formula"></span></div>
+      <div class="pid-term-row pid-d"><span class="pid-term-name">Derivative</span><span class="pid-term-description">how the error is changing</span><span class="pid-term-formula">$k_d\,\dot e$</span></div>
+    </div>
+  </div>
+  <div class="pid-total">$F_p = $ <span class="pid-p">$k_p\,e$</span> + <span class="pid-d">$k_d\,\dot e$</span></div>
+  <div class="pid-demo">
+    <div data-widget="piddrone" data-config='{"mode":"PD","width":1180,"height":280,"labels":true,"compactReadout":true,"tmax":20,"controls":"none","autoplay":false,"previewTime":20,"showTerms":true}'></div>
+  </div>
+  <div class="pid-observation">The drone settles <b>below $H$</b>, where $F_p=mg$. At $H$, with $e=0$ and $\dot e=0$, this controller would give $F_p=0$.</div>
+</section>
+
+<section class="pid-stage">
+  <h2>The integral term</h2>
+  <div class="pid-diagram">
+    <div class="pid-error">error<br>$e=H-z$</div>
+    <svg class="pid-branches" viewBox="0 0 50 148" aria-hidden="true"><path d="M0 74 H20 M20 22 V126 M20 22 H48 M20 74 H48 M20 126 H48"/><path d="M42 17 L48 22 L42 27 M42 69 L48 74 L42 79 M42 121 L48 126 L42 131"/></svg>
+    <div class="pid-terms">
+      <div class="pid-term-row pid-p"><span class="pid-term-name">Proportional</span><span class="pid-term-description">what the error is now</span><span class="pid-term-formula">$k_p\,e$</span></div>
+      <div class="pid-term-row pid-i pid-term-new"><span class="pid-term-name">Integral</span><span class="pid-term-description">the error accumulated over time</span><span class="pid-term-formula">$k_i\!\int e\,dt$</span><span class="pid-added">added</span></div>
+      <div class="pid-term-row pid-d"><span class="pid-term-name">Derivative</span><span class="pid-term-description">how the error is changing</span><span class="pid-term-formula">$k_d\,\dot e$</span></div>
+    </div>
+  </div>
+  <div class="pid-total">$F_p = $ <span class="pid-p">$k_p\,e$</span> + <span class="pid-d">$k_d\,\dot e$</span> + <span class="pid-i pid-total-new">$k_i\!\int e\,dt$</span></div>
+  <div class="pid-demo">
+    <div data-widget="piddrone" data-config='{"mode":"PID","width":1180,"height":280,"labels":true,"compactReadout":true,"tmax":20,"controls":"gains","fixedMode":true,"startOnFragment":".pid-prediction","showTerms":true}'></div>
+    <div class="question fragment fade-out pid-prediction" data-fragment-index="0">What do you think will happen?</div>
+  </div>
+</section>
+
+<section class="pid-stage">
+  <h2>The PID controller: what happened</h2>
+  <div class="pid-diagram">
+    <div class="pid-error">error<br>$e=H-z$</div>
+    <svg class="pid-branches" viewBox="0 0 50 148" aria-hidden="true"><path d="M0 74 H20 M20 22 V126 M20 22 H48 M20 74 H48 M20 126 H48"/><path d="M42 17 L48 22 L42 27 M42 69 L48 74 L42 79 M42 121 L48 126 L42 131"/></svg>
+    <div class="pid-terms">
+      <div class="pid-term-row pid-p"><span class="pid-term-name">Proportional</span><span class="pid-term-description">what the error is now</span><span class="pid-term-formula">$k_p\,e$</span></div>
+      <div class="pid-term-row pid-i"><span class="pid-term-name">Integral</span><span class="pid-term-description">the error accumulated over time</span><span class="pid-term-formula">$k_i\!\int e\,dt$</span></div>
+      <div class="pid-term-row pid-d"><span class="pid-term-name">Derivative</span><span class="pid-term-description">how the error is changing</span><span class="pid-term-formula">$k_d\,\dot e$</span></div>
+    </div>
+  </div>
+  <div class="pid-total">$F_p = $ <span class="pid-p">$k_p\,e$</span> + <span class="pid-d">$k_d\,\dot e$</span> + <span class="pid-i">$k_i\!\int e\,dt$</span></div>
+  <div class="pid-demo">
+    <div data-widget="piddrone" data-config='{"mode":"PID","width":1180,"height":280,"labels":true,"compactReadout":true,"tmax":20,"controls":"none","autoplay":false,"previewTime":20,"showTerms":true}'></div>
+  </div>
+  <div class="pid-observation">The drone reaches $H$. As $e$ and $\dot e$ approach zero, the <b>accumulated integral term</b> supplies the thrust that balances gravity.</div>
+</section>
+
+<section>
+  <h2>Several PID controllers at once</h2>
+  <p style="font-size:0.8em; margin:0 0 0.3em">In real life we often have multiple PID controllers interacting with each other:</p>
+  <svg viewBox="0 0 910 190" style="width:100%; display:block; margin:auto; max-width:1100px" font-family="Inter, Arial, sans-serif" >
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa1ae"/></marker></defs>
+<g><rect x="10" y="60" width="130" height="44" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="75.0" y="86.2" fill="#e7e9ee" font-size="12" text-anchor="middle">desired altitude</text></g><g><rect x="150" y="60" width="70" height="44" rx="7" fill="#1e2128" stroke="#f2b134" stroke-width="2"/><text x="185.0" y="86.2" fill="#e7e9ee" font-size="12" text-anchor="middle" font-weight="600">error</text></g><g><rect x="250" y="60" width="70" height="44" rx="7" fill="#1e2128" stroke="#5ab0ff" stroke-width="2"/><text x="285.0" y="86.2" fill="#e7e9ee" font-size="12" text-anchor="middle">PID 2</text></g><g><rect x="370" y="60" width="70" height="44" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="405.0" y="86.2" fill="#e7e9ee" font-size="12" text-anchor="middle">velocity</text></g><g><rect x="450" y="60" width="70" height="44" rx="7" fill="#1e2128" stroke="#f2b134" stroke-width="2"/><text x="485.0" y="86.2" fill="#e7e9ee" font-size="12" text-anchor="middle" font-weight="600">error</text></g><g><rect x="550" y="60" width="70" height="44" rx="7" fill="#1e2128" stroke="#5ab0ff" stroke-width="2"/><text x="585.0" y="86.2" fill="#e7e9ee" font-size="12" text-anchor="middle">PID 1</text></g><g><rect x="670" y="60" width="110" height="44" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="725.0" y="78.7" fill="#e7e9ee" font-size="12" text-anchor="middle">current</text><text x="725.0" y="93.7" fill="#e7e9ee" font-size="12" text-anchor="middle">velocity</text></g><g><rect x="790" y="60" width="110" height="44" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="845.0" y="78.7" fill="#e7e9ee" font-size="12" text-anchor="middle">current</text><text x="845.0" y="93.7" fill="#e7e9ee" font-size="12" text-anchor="middle">altitude</text></g><line x1="140" y1="82.0" x2="148" y2="82.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="220" y1="82.0" x2="248" y2="82.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="320" y1="82.0" x2="368" y2="82.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="440" y1="82.0" x2="448" y2="82.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="520" y1="82.0" x2="548" y2="82.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="620" y1="82.0" x2="668" y2="82.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="780" y1="82.0" x2="788" y2="82.0" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><path d="M 725 104 L 725 134 L 485 134 L 485 108" fill="none" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><path d="M 845 104 L 845 166 L 185 166 L 185 108" fill="none" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><g><rect x="560" y="120" width="70" height="26" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="595.0" y="136.8" fill="#e7e9ee" font-size="11" text-anchor="middle">feedback</text></g><g><rect x="300" y="152" width="70" height="26" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="335.0" y="168.8" fill="#e7e9ee" font-size="11" text-anchor="middle">feedback</text></g>
+</svg>
+  <div class="cols" style="font-size:0.74em; margin-top:0.4em; grid-template-columns: 1fr 1.3fr">
+    <div class="box key"><b>Why do this?</b> For example, when one variable has to be controlled at a much higher frequency than the other.</div>
+    <ul style="margin:0 0 0 1.1em">
+      <li>the rotor speed has to react quickly (e.g. to a gust of wind) to keep the desired velocity</li>
+      <li>corrections to the altitude should come at a much slower rate, e.g. to average the measurement over time and get rid of the noise</li>
+    </ul>
+  </div>
+</section>
+
+<section class="section-slide">
+  <div class="num">Part 2 · PID control</div>
+  <h1>Transfer functions</h1>
+</section>
+
+<section>
+  <h2>Transfer functions: the general idea</h2>
+  <p style="font-size:0.8em; margin:0 0 0.2em">We started dealing with many interconnected blocks:</p>
+  <svg viewBox="0 0 900 160" style="width:100%; display:block; margin:auto; max-width:1000px" font-family="Inter, Arial, sans-serif" >
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa1ae"/></marker></defs>
+<g><rect x="300" y="70" width="120" height="48" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="360.0" y="100.0" fill="#e7e9ee" font-size="17" text-anchor="middle" font-weight="600">B1</text></g><g><rect x="560" y="70" width="120" height="48" rx="7" fill="#1e2128" stroke="#3a3f4b" stroke-width="2"/><text x="620.0" y="100.0" fill="#e7e9ee" font-size="17" text-anchor="middle" font-weight="600">B2</text></g><line x1="120" y1="94" x2="298" y2="94" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="420" y1="94" x2="558" y2="94" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><line x1="680" y1="94" x2="860" y2="94" stroke="#9aa1ae" stroke-width="1.6" marker-end="url(#ar)"/><text x="208" y="80" fill="#5fd38d" font-size="15" text-anchor="middle" >some input u(t)</text><text x="490" y="60" fill="#5fd38d" font-size="15" text-anchor="middle" >the output y(t) …</text><text x="490" y="128" fill="#5fd38d" font-size="13" text-anchor="middle" >… becomes the input ũ(t) of the next block</text><text x="770" y="80" fill="#5fd38d" font-size="15" text-anchor="middle" >the output ỹ(t)</text>
+</svg>
+  <div class="cols" style="margin-top:0.6em">
+    <div class="callout-static box">How to combine these consecutive signals?</div>
+    <div class="box key">Transfer functions: an efficient way to do it</div>
+  </div>
+  <ul style="font-size:0.72em; margin-top:0.8em" class="dim">
+    <li>a vast topic: if you see it for the first time, do not try to process everything at once</li>
+    <li>from the perspective of this course it is enough to treat it as a black-box tool</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Without transfer functions: the profile of a block</h2>
+  <div data-widget="impulseresponse" data-config='{"mode":"single"}' style="margin:0 auto"></div>
+  <p style="font-size:0.74em; margin:0.7em 0 0">What is the profile of a block? Feed it a single impulse (a Dirac delta): the output it produces is the profile, $g(t)$. Also called the impulse response.</p>
+  <p class="small" style="margin-top:0.6em">A Dirac delta: the limit of narrower and narrower bumps with the same area $1$.</p>
+</section>
+
+<section>
+  <h2>Without transfer functions: the output for any input</h2>
+  <p style="font-size:0.74em; margin:0 0 0.4em">Split the input into impulses → shift and scale the profile → add the outputs.</p>
+  <div data-widget="impulseresponse" data-config='{"mode":"sum"}' style="margin:0 auto"></div>
+  <div style="font-size:1.05em; margin-top:0.5em">
+    $$y(t) = \int_0^t u(\tau)\,g(t-\tau)\,d\tau = (u*g)(t)$$
+    <p class="small" style="text-align:center; margin:0"><b>Convolution</b>: the sum over all impulses.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The problem is…</h2>
+  <div data-widget="impulseresponse" data-config='{"mode":"cascade"}' style="margin:0 auto"></div>
+  <div style="font-size:0.88em; margin-top:0.5em">
+    $$y_2(t) = \int_0^t \underbrace{\left[\int_0^\tau u(\sigma)\,g_1(\tau-\sigma)\,d\sigma\right]}_{\text{output of the first block}} g_2(t-\tau)\,d\tau = (u*g_1*g_2)(t)$$
+  </div>
+  <p style="font-size:0.82em; text-align:center; margin-top:0.4em">Computing a convolution <b>of a convolution is hard</b>.</p>
+</section>
+
+<section>
+  <h2>Transfer functions</h2>
+  <div class="anno" style="width:1200px; height:560px">
+    <p class="t" style="left:0; top:0">It turns out we can use the <b>Laplace transform</b> $\mathcal L$:</p>
+    <div class="f" style="left:0; right:0; top:50px; font-size:1.3em">$$\mathcal L u\,(s) = \htmlClass{t-U}{U(s)} = \int_0^\infty u(t)\,\htmlClass{t-exp}{e^{-st}}\,dt$$</div>
+    <div class="callout" data-to=".t-U" style="left:120px; top:170px; width:330px">it represents all our functions by <b>unique</b> functions of a different variable, $s$</div>
+    <div class="callout" data-to=".t-exp" style="left:760px; top:170px; width:300px">a weighted sum over time: what is the signal made of, exponentials and oscillations of which rates and frequencies?</div>
+    <div class="f fragment" data-fragment-index="1" style="left:0; right:0; top:290px; font-size:1.3em">$$\mathcal L\,(u * g) = \htmlClass{t-prod}{\mathcal L u \cdot \mathcal L g}$$</div>
+    <div class="callout fragment" data-fragment-index="1" data-to=".t-prod" style="left:160px; top:400px; width:380px">a <b>convolution</b> in the time domain is a <b>multiplication</b> of the representatives in the $s$ domain</div>
+    <div class="callout key fragment" data-fragment-index="1" style="left:720px; top:400px; width:300px">AND MULTIPLICATION IS EASY</div>
+    <div data-widget="annotate"></div>
+  </div>
+</section>
+
+<section>
+  <h2>Transfer functions: the PID controller</h2>
+  <div class="cols" style="grid-template-columns: 250px 1fr; gap:1.5em; align-items:center; margin-top:0.4em">
+    <div>
+      <div class="box" style="font-size:0.7em; text-align:center">given an input represented in the $s$ domain</div>
+      <div class="box" style="border-color:var(--accent); text-align:center; font-size:1.3em; margin-top:0.6em">$U(s)$</div>
+    </div>
+    <div style="font-size:0.85em">
+      <div class="box key" style="font-size:0.8em; text-align:center; margin-bottom:0.6em">what we get in the $s$ domain</div>
+      <div style="display:grid; grid-template-columns: 180px 50px 1fr; gap:0.5em 0.4em; align-items:center">
+        <div style="display:contents"><div class="box" style="border-color:var(--blue); text-align:center; font-weight:600; padding:0.3em 0.5em">Proportional</div><div style="color:var(--fg-dim); text-align:center; font-size:1.4em">→</div><div class="box" style="text-align:center; padding:0.3em 0.5em">$k_p \cdot U(s)$</div></div><div style="display:contents"><div class="box" style="border-color:var(--green); text-align:center; font-weight:600; padding:0.3em 0.5em">Integral</div><div style="color:var(--fg-dim); text-align:center; font-size:1.4em">→</div><div class="box" style="text-align:center; padding:0.3em 0.5em">$\dfrac{k_i}{s} \cdot U(s)$</div></div><div style="display:contents"><div class="box" style="border-color:#b28dff; text-align:center; font-weight:600; padding:0.3em 0.5em">Derivative</div><div style="color:var(--fg-dim); text-align:center; font-size:1.4em">→</div><div class="box" style="text-align:center; padding:0.3em 0.5em">$k_d \, s \cdot U(s)$</div></div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:0.74em; margin-top:0.7em">Integration becomes a division by $s$, differentiation a multiplication by $s$. The whole controller is one algebraic expression, $K(s) = k_p + k_i/s + k_d\,s$, and chaining blocks is multiplying such expressions.</p>
+</section>
+
+<section>
+  <h2>Intuition behind the Laplace transform <span class="optional-badge">Optional further reading</span></h2>
+  <div style="display:flex; justify-content:center; margin-top:0.3em"><div data-widget="yt" data-config='{"id":"n2y7n6jw5d0","title":"What does the Laplace transform really tell us? (Zach Star)","width":900,"height":506,"small":false,"start":0,"end":0,"autoplay":false}'></div></div>
+  
+</section>
+
+<section class="section-slide">
+  <div class="num">Part 3</div>
+  <h1>Simulation engines</h1>
+</section>
+
+<section>
+  <h2>Examples and motivation</h2>
+  <div style="display:grid; grid-template-columns:repeat(3, 370px); gap:14px; justify-content:center; margin-top:0.2em"><div><div data-widget="yt" data-config='{"id":"bhc5i4ul-CI","title":"Natural and robust walking with reinforcement learning (Tübingen)","width":370,"height":208,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"ZZVKrNs7_mk","title":"Physically simulated tennis skills from broadcast videos","width":370,"height":208,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"V96GfcMUH2Q","title":"PhysGaussian: physics-integrated 3D Gaussians","width":370,"height":208,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"y96jk-eUCgI","title":"Incremental Potential Contact (SIGGRAPH 2020)","width":370,"height":208,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"k3e8ZMfLBRc","title":"Augmented IPC for sticky interactions","width":370,"height":208,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"J-UTyb7lOEw","title":"Physical Intelligence: π0","width":370,"height":208,"small":true,"start":0,"end":0,"autoplay":true}'></div></div></div>
+  <div style="display:grid; grid-template-columns:repeat(3, 370px); gap:14px; justify-content:center; margin-top:0.5em; font-size:0.62em">
+    <div class="box" style="padding:0.3em 0.6em">used a lot in <b>reinforcement learning</b></div>
+    <div class="box" style="padding:0.3em 0.6em">can be combined with recent ML techniques such as <b>Gaussian splats</b></div>
+    <div class="box" style="padding:0.3em 0.6em">the ideas are used in <b>diffusion and flow-matching</b> models</div>
+  </div>
+</section>
+
+<section>
+  <h2>Simulation means numerical integration</h2>
+  <div class="cols" style="grid-template-columns:560px 1fr; gap:1.4em; align-items:center">
+    <div data-widget="phase2d" data-config='{"system":"spring","c":0,"dt":0.001,"method":"euler","q0":[1.4,1.4],"steps":6283,"width":560,"height":350,"controls":"playback","readout":false,"showExact":false,"showDirection":true,"stepwise":true,"accelerateSteps":true,"loop":true}'></div>
+    <div style="font-size:0.76em">
+      <div class="box" data-integration-step="0" style="margin-bottom:0.6em">1 · Start from the current state<br><span class="blue">$\mathbf q=(x,\dot x)$</span></div>
+      <div class="box" data-integration-step="1" style="margin-bottom:0.6em">2 · Evaluate its rate of change<br><span class="blue">The arrow $f(\mathbf q)$ at the current point</span></div>
+      <div class="box" data-integration-step="2">3 · Advance by a small $\Delta t$<br>Follow the arrow, then repeat from the new state.</div>
+    </div>
+  </div>
+  <div class="fragment" data-fragment-index="1" style="font-size:0.88em; margin-top:0.5em">
+    <p style="font-size:0.8em; margin:0"><b>Example: explicit Euler</b></p>
+    $$\underbrace{f(\mathbf q,t) = \dot{\mathbf q}(t)}_{\text{DE of our system}}\approx\frac{\mathbf q(t+\Delta t)-\mathbf q(t)}{\Delta t}
+      \quad\Longrightarrow\quad
+      \mathbf q(t+\Delta t)\approx\mathbf q(t)+\Delta t\,f(\mathbf q(t),t)$$
+    <p class="small" style="margin:0">Repeated updates trace how the state evolves.</p>
+  </div>
+</section>
+
+
+
+
+<section>
+  <h2>What can go wrong in a simulation?</h2>
+  <div class="cols" style="grid-template-columns: 560px 1fr; gap:1.4em; align-items:start">
+    <div data-widget="phase2d" data-config='{"system":"spring","c":0,"dt":0.3,"method":"euler","q0":[2,0],"steps":80,"width":560,"height":390}'></div>
+    <div style="font-size:0.78em">
+      <p style="margin:0">A spring without damping: the exact trajectory is a closed orbit (green), the energy is conserved.</p>
+      <ul style="margin:0.5em 0 0 1.1em">
+        <li>every Euler step follows the arrow at the current point, which is a tangent of the orbit: it always lands slightly <b>outside</b></li>
+        <li>the errors add up: the state spirals outwards, the simulated spring gains energy from nothing</li>
+        <li>make $\Delta t$ smaller and compare</li>
+      </ul>
+      <div class="takeaway" style="font-size:0.9em; margin-top:0.6em">The time step is not a detail: too large, and the simulation is wrong, or explodes.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>More precise numerical schemes</h2>
+  <p style="font-size:0.74em; margin:0">There are different ways to approximate $\dot{\mathbf q}$. Start with the <b>Taylor expansion</b>:</p>
+  <div style="font-size:0.74em; margin:0.15em 0">
+    $$\mathbf q(t\pm\Delta t)=\mathbf q(t)\pm\Delta t\,\dot{\mathbf q}(t)
+      +\frac{\Delta t^2}{2}\ddot{\mathbf q}(t)\pm\frac{\Delta t^3}{6}\mathbf q^{(3)}(t)+\ldots$$
+  </div>
+  <div style="display:grid; grid-template-columns:210px 1fr; align-items:center; gap:0.1em 0.5em; font-size:0.68em">
+    <div><b>Forward Euler</b></div>
+    <div>$\displaystyle\frac{\mathbf q(t+\Delta t)-\mathbf q(t)}{\Delta t}=\dot{\mathbf q}(t)+O(\Delta t)$</div>
+    <div><b>Backward Euler</b></div>
+    <div>$\displaystyle\frac{\mathbf q(t)-\mathbf q(t-\Delta t)}{\Delta t}=\dot{\mathbf q}(t)+O(\Delta t)$</div>
+    <div><b>Central difference</b></div>
+    <div>$\displaystyle\frac{\mathbf q(t+\Delta t)-\mathbf q(t-\Delta t)}{2\Delta t}=\dot{\mathbf q}(t)+\htmlClass{accent}{O(\Delta t^2)}$</div>
+  </div>
+  <p style="font-size:0.66em; margin:0.4em 0">Subtracting the two Taylor expansions cancels the even powers. The central difference’s error scales as $\Delta t^2$: <b>halve the step → quarter the error</b>.</p>
+  <div class="cols" style="grid-template-columns:480px 480px; gap:1.2em; justify-content:center">
+    <div>
+      <p style="font-size:0.7em; text-align:center; margin:0 0 0.25em"><b>Explicit Euler</b> · $\Delta t=0.3$</p>
+      <div data-widget="phase2d" data-config='{"system":"spring","c":0,"dt":0.3,"method":"euler","q0":[2,0],"steps":21,"range":5.2,"width":480,"height":205,"controls":"playback","readout":false,"selectInitial":false,"restartOnEntry":true,"loop":true}'></div>
+    </div>
+    <div>
+      <p style="font-size:0.7em; text-align:center; margin:0 0 0.25em"><b>Runge–Kutta (RK4)</b> · $\Delta t=0.3$</p>
+      <div data-widget="phase2d" data-config='{"system":"spring","c":0,"dt":0.3,"method":"rk4","q0":[2,0],"steps":21,"range":5.2,"width":480,"height":205,"controls":"playback","readout":false,"selectInitial":false,"restartOnEntry":true,"loop":true}'></div>
+    </div>
+  </div>
+  <p style="font-size:0.66em; margin:0.4em 0 0">RK4 uses four rate evaluations per step: smaller error at the same $\Delta t$. Green: exact trajectory.</p>
+</section>
+
+<section>
+  <h2>A wrong time step for the P-controlled drone</h2>
+  <p style="font-size:0.74em; margin:0 0 0.4em">The drone simulator used in the lab sessions, with a P controller on the altitude and nothing else changed between the two runs:</p>
+  <div class="cols" style="gap:1em">
+    <div>
+      <p style="font-size:0.72em; margin:0 0 0.2em">the correct version: $\Delta t = 0.01$</p>
+      <video data-autoplay loop muted playsinline preload="auto" poster="../../assets/lecture05/drone_dt001.jpg" style="width:560px; display:block; border-radius:8px"><source src="../../assets/lecture05/drone_dt001.mp4" type="video/mp4"></video>
+    </div>
+    <div>
+      <p style="font-size:0.72em; margin:0 0 0.2em">the time step increased just to <b>$\Delta t = 0.04$</b></p>
+      <video data-autoplay loop muted playsinline preload="auto" poster="../../assets/lecture05/drone_dt004.jpg" style="width:560px; display:block; border-radius:8px"><source src="../../assets/lecture05/drone_dt004.mp4" type="video/mp4"></video>
+    </div>
+  </div>
+  <p style="font-size:0.7em; margin-top:0.4em">With the larger step the oscillation grows instead of dying out, until the drone hits the floor and breaks. The drone, the controller and the gains did not change.</p>
+</section>
+
+<section>
+  <h2>A wrong time step for the P-controlled drone: the plot</h2>
+  <div class="cols" style="gap:1em">
+    <div>
+      <p style="font-size:0.72em; margin:0 0 0.2em">the correct version: $\Delta t = 0.01$</p>
+      <div data-widget="piddrone" data-config='{"mode":"P","dt":0.01,"width":580,"height":330,"controls":"playback","tmax":14,"z0":0.3,"speed":0.75,"restartOnEntry":true}'></div>
+    </div>
+    <div>
+      <p style="font-size:0.72em; margin:0 0 0.2em">the time step increased just to <b>$\Delta t = 0.04$</b></p>
+      <div data-widget="piddrone" data-config='{"mode":"P","dt":0.04,"width":580,"height":330,"controls":"dt","tmax":14,"z0":0.3,"speed":0.75,"restartOnEntry":true}'></div>
+    </div>
+  </div>
+  <p style="font-size:0.7em; margin-top:0.3em">Our toy simulation, starting at $z=0.3$ m and played at $0.75\times$ speed: the oscillation grows until the drone lands too hard. Try RK4 with the same $\Delta t$: a better integrator survives the larger step.</p>
+</section>
+
+
+
+<section>
+  <h2>A note on the rendering speed</h2>
+  <div data-widget="pendulumplayback" style="margin:0.4em auto 0"></div>
+  <p style="font-size:0.76em; margin:0.8em 0 0">At 1× we display 20 stored steps/s. Increasing $\Delta t$ from 0.05 to 0.2 s or using 4× playback both shorten the full run from <b>12 to 3 wall-clock seconds</b>. Only changing $\Delta t$ changes the trajectory.</p>
+</section>
+
+<section class="section-slide">
+  <h1>Extensions, Applications &amp; Discussion</h1>
+</section>
+
+<section>
+  <h2>Simulating deformation</h2>
+  <div style="display:grid; grid-template-columns:repeat(2, 480px); gap:14px; justify-content:center; margin-top:0.2em"><div><div data-widget="yt" data-config='{"id":"y96jk-eUCgI","title":"Incremental Potential Contact (SIGGRAPH 2020)","width":480,"height":270,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"7NF3CdXkm68","title":"NVIDIA: the hardest problem in physics simulation (Two Minute Papers)","width":480,"height":270,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"8iyvhGF9f7o","title":"Moving least squares MPM (SIGGRAPH 2018)","width":480,"height":270,"small":true,"start":0,"end":0,"autoplay":true}'></div></div><div><div data-widget="yt" data-config='{"id":"hFzCQcp3LbE","title":"CK-MPM: a compact-kernel material point method (SIGGRAPH 2025)","width":480,"height":270,"small":true,"start":0,"end":0,"autoplay":true}'></div></div></div>
+  <p style="font-size:0.72em; margin:0.6em 0 0">Cloth, jelly, snow, sand, fluids: a continuous body is cut into small parts, and the simulator keeps track of how each part moves and deforms. A field of its own; simulation engines do it for you.</p>
+</section>
+
+
+
+<section>
+  <h2>Flow Matching & Diffusion: Deforming probability</h2>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.55em 0.7em; margin-top:0.2em">
+    <div class="box"><h3 style="font-size:0.72em; margin-bottom:0.3em">We can easily sample from known distributions</h3><div data-widget="gauss1d" data-config='{"width":534,"height":190,"controls":"overlay","t":0,"print_t":1}'></div></div>
+    <div class="box"><h3 style="font-size:0.72em; margin-bottom:0.3em">Deformable simulations: studied for decades</h3><div data-widget="melt" data-config='{"panel":"ice","width":534,"height":190,"controls":"overlay","t":0,"print_t":0.6}'></div></div>
+    <div class="box" style="grid-column:1 / -1"><h3 style="font-size:0.72em; margin-bottom:0.3em">Combine the two ideas to generate samples from the distribution of interest</h3><div data-widget="melt" data-config='{"panel":"density","width":900,"height":280,"samples":200,"controls":"overlay","t":0,"print_t":0.6}' style="width:900px; margin:0 auto"></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Example application: π0 - idea</h2>
+  <div class="cols" style="grid-template-columns:1fr auto; gap:1.4em; align-items:center">
+    <div style="display:flex; align-items:stretch; justify-content:center; gap:0.4em; min-height:420px">
+      <div style="align-self:center" class="box"><span style="font-family:var(--mono); font-size:0.85em; white-space:nowrap">Flow Matching</span></div>
+      <svg viewBox="0 0 24 340" preserveAspectRatio="none" style="width:24px; flex:none"><path d="M 20 4 Q 10 4 10 24 L 10 150 Q 10 170 2 170 Q 10 170 10 190 L 10 316 Q 10 336 20 336" fill="none" stroke="#9aa1ae" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+      <div class="pichain" style="display:flex; flex-direction:column; justify-content:space-between; align-items:center; font-size:0.9em; padding:0.2em 0.4em">
+        <div data-pi="0">$\textcolor{#5ab0ff}{\mathbf A_t^0} \sim \mathcal N(\mathbf 0, \mathbf I)$</div>
+        <div class="dim">↓</div><div class="dim">⋯</div><div class="dim">↓</div>
+        <div data-pi="tau">$\textcolor{#5fd38d}{\mathbf A_t^\tau}$ <span class="dim" data-tau style="display:inline-block; min-width:5.2em; font-size:0.8em; text-align:left"></span></div>
+        <div class="dim">↓</div><div class="dim">⋯</div><div class="dim">↓</div>
+        <div data-pi="1">$\textcolor{#ff6b6b}{\mathbf A_t^1} \sim p_1$</div>
+      </div>
+    </div>
+    <div data-widget="chunkflow" data-config='{"n":10,"episodes":[[-1,1],[1,1]],"width":540,"height":500}'></div>
+  </div>
+  <aside class="notes">Proposal 2: an exact illustration computed in the browser instead of the recording. The gripper has to get from the start to the box past two obstacles; the demonstrations go around each on the left or on the right. The task takes four chunks of 50 positions. The policy infers a chunk from the current observation (here the gripper position and the stage of the task), the robot executes it open loop, and only then the next inference starts, from where the gripper is now. Each inference is the lecture's flow: A^0 ~ N(0, I), 10 Euler steps of the marginal flow of the conditional OT paths (computed from the demonstrations that fit the observation, not a trained network), ending in A^1 ~ p_1. The chain on the left lights up during an inference and goes dark while the robot executes. The first inference is slow, the others fast. Two episodes with different choices: left then right (an S-curve), then right and right. The choice at the first obstacle is made in the first chunk, the choice at the second obstacle in the third; once the gripper is on one side, the observation rules out the other, so the chunks stay consistent. No chunk ever goes through an obstacle, which an average of the two ways would.</aside>
+</section>
+
+<section>
+  <h2>In action</h2>
+  <div class="cols" style="grid-template-columns:380px 820px; gap:30px; margin-top:0.3em">
+    <div>
+      <h3 style="font-size:0.85em; margin-bottom:0.5em">Also at MIMUW :)</h3>
+      <div style="display:grid; gap:18px">
+        <figure style="margin:0; display:flex; align-items:center; gap:16px"><img src="../../assets/lecture05/lab-75.jpg" alt="Two Trossen robot arms above a table with a cardboard box, seen from a top camera" style="width:220px; border-radius:8px; display:block"></figure>
+        <figure style="margin:0; display:flex; align-items:center; gap:16px"><img src="../../assets/lecture05/lab-83.jpg" alt="Two Trossen robot arms sorting blue 3D-printed blocks into a bin" style="width:220px; border-radius:8px; display:block"></figure>
+        <figure style="margin:0; display:flex; align-items:center; gap:16px"><img src="../../assets/lecture05/lab-84.jpg" alt="Robot arms and a UR arm over a grey bin on a bench" style="width:220px; border-radius:8px; display:block"></figure>
+      </div>
+    </div>
+    <div>
+      <h3 style="font-size:0.85em; margin-bottom:0.5em"><a href="https://www.pi.website/blog/pi07">Physical Intelligence · π0.7</a></h3>
+      <video data-autoplay loop muted playsinline preload="auto" poster="../../assets/lecture05/pi07-overview-poster.jpg" style="width:820px; height:461px; display:block; border-radius:10px" aria-label="Physical Intelligence π0.7 demonstration"><source src="../../assets/lecture05/pi07-overview.mp4" type="video/mp4"></video>
+    </div>
+  </div>
+  <p style="font-size:0.78em; margin-top:0.65em">At MIMUW: flow-matching and diffusion policies for bimanual manipulation, trained from demonstrations. If you want to work on this, talk to us.</p>
+</section>
+
+<section>
+  <h2>Summary</h2>
+  <div>
+    <li>a system is a <b>state</b> and a <b>vector field</b> $\dot{\mathbf q} = f(\mathbf q, t)$</li>
+    <li>constraints reduce the degrees of freedom</li>
+    <li>every ODE can be made first order</li>
+    <li></li>
+    <li><b>feedback control</b>: measure, compare with the target, act on the error, repeat</li>
+    <li><b>PID</b>: act on the error now (P), on its accumulated past (I), on its trend (D)</li>
+    <li>controllers are often <b>cascaded</b>: a fast inner loop, a slow outer one</li>
+    <li></li>
+    <li>a simulator <b>integrates</b> the field step by step, and the time step + numerical scheme decide the accuracy</li>
+    <li>rendering speed does not change the physics, the numerical integration timestep does</li>
+  </div>
+</section>
+
+<section>
+  <h2>References and more on these topics</h2>
+  <div class="cols" style="font-size:0.72em">
+    <div>
+      <h3>PID control</h3>
+      <ul style="margin:0 0 0 1.1em">
+        <li>Brian Douglas, <a href="https://youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y">lectures on PID control</a> (playlist)</li>
+        <li>Brian Douglas, <a href="https://www.youtube.com/watch?v=RJleGwXorUk">transfer functions</a></li>
+        <li>Zach Star, <a href="https://www.youtube.com/watch?v=n2y7n6jw5d0">the Laplace transform, a visual explanation</a></li>
+        <li>S. W. Smith, <a href="https://www.analog.com/media/en/technical-documentation/dsp-book/dsp_book_ch6.pdf">convolution</a>, chapter 6 of <i>The Scientist and Engineer's Guide to DSP</i></li>
+      </ul>
+    </div>
+    <div>
+      <h3>Differential equations, simulation engines & flow matching</h3>
+      <ul style="margin:0 0 0 1.1em">
+        <li>3Blue1Brown, <a href="https://www.youtube.com/watch?v=p_di4Zn4wz4">Differential equations, a tourist's guide</a></li>
+        <li>Steve Brunton, <a href="https://www.youtube.com/playlist?list=PLMrJAkhIeNNTYaOnVI3QpH7jgULnAmvPA">numerical differentiation and integration</a> (playlist)</li>
+        <li>C. Jiang et al., <a href="https://www.math.ucla.edu/~cffjiang/research/mpmcourse/mpmcourse.pdf">The material point method for simulating continuum materials</a> (SIGGRAPH course)</li>
+        <li><a href="https://mujoco.readthedocs.io/">MuJoCo</a></li>
+        <li>For flow matching: see my DNN lecture and the references there</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="feedback" class="title-slide">
+  <h1>Feedback</h1>
+  <div style="display:flex; align-items:center; gap:1.5em; margin-top:0.5em">
+    <img src="../../assets/feedback-qr.svg" alt="QR code linking to tinyurl.com/mimuw-rc-feedback" style="width:340px; height:340px; box-sizing:content-box; padding:18px; background:#fff; border-radius:8px; margin:0">
+    <div>
+      <p>Please spend a minute: your feedback helps us improve the next lecture.</p>
+      <p style="font-family:var(--mono); font-size:1.1em"><a href="https://tinyurl.com/mimuw-rc-feedback">tinyurl.com/mimuw-rc-feedback</a></p>
+      <p class="small">Anonymous, no login, three questions.</p>
+    </div>
+  </div>
+</section>
+
+</div></div>
+<script type="module">
+  import '../../shared/deck.js?v=pi0-idea-1';
+  // A fade-out fragment starts visible; keep its video in sync when navigating either way.
+  const intro = document.querySelector('.overview-video');
+  const video = intro.querySelector('video');
+  const syncIntroVideo = () => {
+    const visible = intro.closest('section').classList.contains('present') && !intro.classList.contains('visible');
+    if (visible) video.play().catch(() => {});
+    else video.pause();
+  };
+  for (const event of ['slidechanged', 'fragmentshown', 'fragmenthidden']) window.deck.on(event, syncIntroVideo);
+  syncIntroVideo();
+</script>
+</body>
+</html>

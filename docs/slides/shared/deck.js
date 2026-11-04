@@ -57,6 +57,19 @@ const widgetModules = {
   slam2d: () => import('./widgets/slam2d.js'),
   multiview2d: () => import('./widgets/multiview2d.js'),
   annotate: () => import('./widgets/annotate.js'),
+  yt: () => import('./widgets/yt.js'),
+  piddrone: () => import('./widgets/piddrone.js?v=terms-1'),
+  dronethrust: () => import('./widgets/dronethrust.js?v=varied-1'),
+  pendulumplayback: () => import('./widgets/pendulumplayback.js?v=2'),
+  chunkflow: () => import('./widgets/chunkflow.js'),
+  gauss1d: () => import('./widgets/gauss1d.js'),
+  melt: () => import('./widgets/melt.js'),
+  phase2d: () => import('./widgets/phase2d.js?v=schemes-1'),
+  deform2d: () => import('./widgets/deform2d.js'),
+  dpend: () => import('./widgets/dpend.js'),
+  pie: () => import('./widgets/pie.js'),
+  car2d: () => import('./widgets/car2d.js'),
+  impulseresponse: () => import('./widgets/impulseresponse.js?v=safari-pause-3'),
 };
 
 function renderMath(root) {
