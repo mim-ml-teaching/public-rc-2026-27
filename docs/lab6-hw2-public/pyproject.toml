@@ -1,0 +1,13 @@
+[project]
+name = "hw2"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.10.*"
+dependencies = [
+    "mujoco>=3.3.7",
+    "numpy>=2.2.6",
+    "pandas>=2.3.3",
+    "scipy>=1.15.3",
+    "tyro>=0.8.6",
+]

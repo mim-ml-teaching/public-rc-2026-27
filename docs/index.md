@@ -8,6 +8,8 @@
 
 # Homeworks
 
+* [homework 2: drone](lab6-hw2-public/lab6.md)
+
 # Lectures
 
 * [Lecture slides](slides/) (interactive, open in a browser)
