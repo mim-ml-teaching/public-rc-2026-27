@@ -5,10 +5,11 @@
 * [lab3](lab3-public/lab3.md)
 * [lab4](lab4-public/lab4.md)
 * [lab5](lab5-public/lab5.md)
+* [lab6](hw2-public/index.md) (also the homework about PID controllers)
 
 # Homeworks
 
-* [homework 2: drone](lab6-hw2-public/lab6.md)
+* [PID controllers](hw2-public/index.md)
 
 # Lectures
 
