@@ -9,10 +9,7 @@ import { matmul, matvec, transpose, symEig, solve, rng } from './linalg.js';
 // F = total intensity (mG), I = inclination (deg, + = down), D = declination (deg, + = east).
 export const CITIES = {
   Tallinn: { F: 523, I: 73.2, D: 9.6 },
-  'Toruń': { F: 504, I: 68.4, D: 6.3 },
   Warsaw: { F: 504, I: 68.1, D: 6.8 },
-  Opole: { F: 498, I: 66.8, D: 5.7 },
-  Kyiv: { F: 509, I: 67.5, D: 8.3 },
 };
 export const deg = Math.PI / 180;
 

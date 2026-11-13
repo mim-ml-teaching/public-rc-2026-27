@@ -70,6 +70,21 @@ const widgetModules = {
   pie: () => import('./widgets/pie.js'),
   car2d: () => import('./widgets/car2d.js'),
   impulseresponse: () => import('./widgets/impulseresponse.js?v=safari-pause-3'),
+  tilt2d: () => import('./widgets/tilt2d.js'),
+  quadmix: () => import('./widgets/quadmix.js'),
+  imudrift: () => import('./widgets/imudrift.js'),
+  accquad: () => import('./widgets/accquad.js'),
+  compfilter: () => import('./widgets/compfilter.js'),
+  flighttime: () => import('./widgets/flighttime.js'),
+  motorfail: () => import('./widgets/motorfail.js'),
+  gimbalquad: () => import('./widgets/gimbalquad.js'),
+  rcplane: () => import('./widgets/rcplane.js'),
+  handquad: () => import('./widgets/handquad.js'),
+  reactorque: () => import('./widgets/reactorque.js'),
+  xplus: () => import('./widgets/xplus.js'),
+  anglerate: () => import('./widgets/anglerate.js'),
+  sensortimeline: () => import('./widgets/sensortimeline.js'),
+  planarquad: () => import('./widgets/planarquad.js'),
 };
 
 function renderMath(root) {
@@ -130,7 +145,15 @@ const deck = new Reveal({
 await deck.initialize();
 renderMath(document.querySelector('.reveal .slides'));
 
-const frames = n => new Promise(res => { const f = k => (k ? requestAnimationFrame(() => f(k - 1)) : res()); f(n); });
+// Wait n animation frames; falls back to a timer because headless printing can starve requestAnimationFrame
+// (seen with lecture 6: the print view stalled after a widget, and make-pdf.mjs timed out). Same as the DNN deck.
+const frames = n => new Promise(res => {
+  let done = false;
+  const fin = () => { if (!done) { done = true; res(); } };
+  const f = k => (k ? requestAnimationFrame(() => f(k - 1)) : fin());
+  f(n);
+  setTimeout(fin, 120 * n + 200);
+});
 
 // Print view: replace a rendered WebGL canvas by a still image and free its context, so that decks with
 // more 3D figures than the browser's WebGL context limit (~16) still print every one of them.

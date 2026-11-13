@@ -1,6 +1,6 @@
 // The local Earth magnetic field as a 3D vector: total intensity F, inclination I (below the horizon), declination D
 // (magnetic north east of true north), horizontal part H = F cos I (green) and vertical part Z = F sin I (blue).
-// Values for five cities from ArduPilot's built-in table (magutil.CITIES).
+// Values for two cities from ArduPilot's built-in table (magutil.CITIES).
 // Scene frame: x = true north, y = west, z = up; the field arrow is drawn with length ∝ F.
 //
 // config: { width, height, city ("Warsaw") }
