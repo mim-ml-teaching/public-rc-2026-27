@@ -1,0 +1,17 @@
+{
+  "name": "loop",
+  "description": "Five-gate circuit with wide spacing, climbs, descents, and changing flight directions. One ordered pass through all five gates.",
+  "time_limit": 60.0,
+  "start": [-1.5, -3.5, 1.2],
+  "gates": [
+    {"name": "red", "center": [-7.0, -3.0, 1.6], "yaw_degrees": -30.0, "color": [1.0, 0.1, 0.1]},
+    {"name": "green", "center": [-10.0, 4.0, 3.8], "yaw_degrees": -110.0, "color": [0.1, 1.0, 0.2]},
+    {"name": "blue", "center": [-3.0, 9.0, 2.6], "yaw_degrees": 180.0, "color": [0.1, 0.3, 1.0]},
+    {"name": "yellow", "center": [4.0, 4.0, 4.8], "yaw_degrees": 120.0, "color": [1.0, 0.8, 0.1]},
+    {"name": "magenta", "center": [2.0, -3.0, 1.1], "yaw_degrees": 36.0, "color": [1.0, 0.1, 0.8]}
+  ],
+  "opening_width": 1.1,
+  "opening_height": 1.2,
+  "bar_thickness": 0.1,
+  "frame_depth": 0.1
+}

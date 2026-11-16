@@ -1,0 +1,13 @@
+{
+  "name": "sanity",
+  "description": "Single-gate MPPI sanity check, using the first gate of the straight track.",
+  "time_limit": 10.0,
+  "start": [0.0, 0.0, 1.0],
+  "gates": [
+    {"name": "red", "center": [-2.0, 0.0, 1.0], "yaw_degrees": 0.0, "color": [1.0, 0.0, 0.0]}
+  ],
+  "opening_width": 1.1,
+  "opening_height": 1.2,
+  "bar_thickness": 0.1,
+  "frame_depth": 0.1
+}
